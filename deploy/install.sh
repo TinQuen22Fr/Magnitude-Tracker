@@ -5,10 +5,12 @@ set -euo pipefail
 
 # ---- VARIABLES PAR DÉFAUT (surchargées par deploy/.env.local si présent) ---
 DOMAIN="sqm.example.com"
-REPO_URL="https://github.com/<votre-user>/<votre-repo>.git"
+REPO_URL="https://github.com/TinQuen22Fr/Magnitude-Tracker.git"
+REPO_BRANCH="Testing"
 INSTALL_DIR="/opt/sqm-nightwatch"
 SERVICE_USER="sqm"
-LETSENCRYPT_EMAIL=""   # (optionnel) email pour les notifs Let's Encrypt
+LETSENCRYPT_EMAIL=""           # (optionnel) email pour les notifs Let's Encrypt
+SQM_API_KEY_OVERRIDE=""        # (optionnel) clé existante à réutiliser (sinon auto-générée)
 # ----------------------------------------------------------------------------
 
 # Charge la config locale si elle existe — survit aux `git pull`
@@ -42,11 +44,13 @@ fi
 echo "==> 2. Utilisateur dédié"
 id -u "$SERVICE_USER" >/dev/null 2>&1 || adduser --system --group --home "$INSTALL_DIR" "$SERVICE_USER"
 
-echo "==> 3. Code source"
+echo "==> 3. Code source (branche : $REPO_BRANCH)"
 if [ ! -d "$INSTALL_DIR/.git" ]; then
-  git clone "$REPO_URL" "$INSTALL_DIR"
+  git clone -b "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
 else
-  git -C "$INSTALL_DIR" pull --ff-only
+  git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
+  git -C "$INSTALL_DIR" checkout "$REPO_BRANCH"
+  git -C "$INSTALL_DIR" pull --ff-only origin "$REPO_BRANCH"
 fi
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
@@ -65,14 +69,29 @@ sudo -u "$SERVICE_USER" "$INSTALL_DIR/backend/.venv/bin/pip" install -r "$REQ_FI
 # Sécurité : s'assurer qu'uvicorn est bien présent
 sudo -u "$SERVICE_USER" "$INSTALL_DIR/backend/.venv/bin/pip" install "uvicorn[standard]"
 
-echo "==> 5. .env minimal (la clé API sera générée au 1er lancement)"
+echo "==> 5. .env du backend"
+# Stratégie :
+#   - Si .env existe déjà avec une SQM_API_KEY → on garde tel quel
+#   - Sinon, on crée un .env minimal et :
+#       • si SQM_API_KEY_OVERRIDE est définie (deploy/.env.local) → on l'utilise
+#         (utile pour conserver une clé existante déjà flashée dans le firmware ESP)
+#       • sinon → la clé sera auto-générée au premier démarrage du service
 if [ ! -f "$INSTALL_DIR/backend/.env" ]; then
-  cat > "$INSTALL_DIR/backend/.env" <<EOF
-# .env minimal — SQM_API_KEY sera générée auto au 1er démarrage et persistée ici.
-# Pas de base MongoDB utilisée : l'API stocke ses données dans backend/sqm_history.json
-CORS_ORIGINS="https://$DOMAIN"
-EOF
+  {
+    echo "# .env minimal — généré par deploy/install.sh"
+    echo "# Pas de base MongoDB utilisée : l'API stocke ses données dans backend/sqm_history.json"
+    echo "CORS_ORIGINS=\"https://$DOMAIN\""
+    if [ -n "${SQM_API_KEY_OVERRIDE:-}" ]; then
+      echo "SQM_API_KEY=$SQM_API_KEY_OVERRIDE"
+      echo "==> Clé API importée depuis deploy/.env.local (SQM_API_KEY_OVERRIDE)"
+    else
+      echo "==> Aucune SQM_API_KEY_OVERRIDE fournie → une clé sera auto-générée au démarrage"
+    fi
+  } > "$INSTALL_DIR/backend/.env"
   chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/backend/.env"
+  chmod 600 "$INSTALL_DIR/backend/.env"
+else
+  echo "==> .env existe déjà — conservé tel quel"
 fi
 
 echo "==> 6. Frontend (build statique)"

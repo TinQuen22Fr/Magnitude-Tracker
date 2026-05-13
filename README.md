@@ -25,12 +25,12 @@ magnitude au fil de la nuit avec rafraîchissement automatique.
 > les ports 80, 443 ouverts.
 
 ```bash
-# 1. Cloner le repo en root
-sudo git clone https://github.com/<votre-user>/Magnitude-Tracker.git /opt/sqm-nightwatch
+# 1. Cloner le repo (branche Testing) en root
+sudo git clone -b Testing https://github.com/TinQuen22Fr/Magnitude-Tracker.git /opt/sqm-nightwatch
 cd /opt/sqm-nightwatch
 
-# 2. Préparer la config locale (DOMAIN, email, etc.)
-cp deploy/env.local.example deploy/.env.local
+# 2. Préparer la config locale (DOMAIN, email, clé API existante…)
+sudo cp deploy/env.local.example deploy/.env.local
 sudo nano deploy/.env.local        # personnaliser DOMAIN au minimum
 
 # 3. Lancer l'installation
@@ -39,6 +39,20 @@ sudo bash deploy/install.sh
 
 À la fin du script, le dashboard est accessible sur `https://<votre-domaine>`
 et la clé API est affichée (à reporter dans le firmware ESP).
+
+### 🔑 Réutiliser une clé API existante (firmware ESP déjà flashé)
+
+Si vous avez déjà un capteur ESP en production avec une clé API qui
+fonctionne, **vous n'avez PAS besoin de reflasher** l'ESP. Décommentez et
+remplissez dans `deploy/.env.local` :
+
+```bash
+SQM_API_KEY_OVERRIDE="votre-cle-existante-ici"
+```
+
+Le script `install.sh` détectera cette variable et l'écrira dans
+`backend/.env`. Aucune nouvelle clé ne sera générée, votre firmware continue
+de fonctionner sans changement.
 
 ### Activer HTTP/3 (QUIC) — optionnel
 
