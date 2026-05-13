@@ -1,0 +1,5 @@
+# Config locale (jamais commitée — voir .env.local.example)
+.env.local
+
+# Backups du vhost générés par enable-http3.sh
+nginx-sqm-nightwatch.conf.bak.*

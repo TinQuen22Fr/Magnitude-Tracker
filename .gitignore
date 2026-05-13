@@ -1,0 +1,69 @@
+# ============================================================================
+# Magnitude Tracker — .gitignore
+# ============================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / Frontend ---
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+.cache/
+.parcel-cache/
+
+# Production builds
+/build
+/dist
+/out
+frontend/build/
+frontend/dist/
+
+# --- Variables d'environnement (secrets) ---
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+deploy/.env.local
+
+# --- Données live (générées au runtime, ne pas versionner) ---
+backend/sqm_history.json
+backend/sqm_history.json.bak
+backend/*.log
+
+# --- Logs ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+logs/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# --- Certificats / clés ---
+*.pem
+*.key
+*.crt
+*.p12
+*.keystore
+*.jks

@@ -1,0 +1,47 @@
+# /etc/systemd/system/sqm-nightwatch.service
+#
+# Service systemd pour le backend FastAPI de SQM Nightwatch.
+# Adapter User / WorkingDirectory / chemin du venv selon votre installation.
+
+[Unit]
+Description=SQM Nightwatch backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Utilisateur dédié (le créer au préalable : adduser --system --group sqm)
+User=sqm
+Group=sqm
+
+# Répertoire où se trouve le code (votre clone GitHub)
+WorkingDirectory=/opt/sqm-nightwatch/backend
+
+# Variables d'environnement (équivalent du .env)
+# IMPORTANT : la clé SQM_API_KEY est auto-générée si absente du .env
+EnvironmentFile=/opt/sqm-nightwatch/backend/.env
+
+# Lancement uvicorn via le venv
+ExecStart=/opt/sqm-nightwatch/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8001
+
+# Stockage des données : sqm_history.json est dans WorkingDirectory.
+# (autre option : pointer SQM_HISTORY_PATH ailleurs si vous adaptez le code)
+
+Restart=on-failure
+RestartSec=5
+
+# Limites & sécurité raisonnables
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/sqm-nightwatch/backend
+PrivateTmp=true
+
+# Logs : par défaut redirigés vers journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sqm-nightwatch
+
+[Install]
+WantedBy=multi-user.target

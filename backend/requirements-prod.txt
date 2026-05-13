@@ -1,0 +1,10 @@
+# requirements-prod.txt — dépendances minimales pour self-hosting
+# (aucun package Emergent, pas de MongoDB, pas de lib LLM)
+#
+# Utilisé par deploy/install.sh pour un environnement de prod propre.
+# Le fichier requirements.txt complet reste pour l'environnement Emergent.
+
+fastapi==0.110.1
+uvicorn[standard]==0.25.0
+python-dotenv>=1.0.1
+pydantic>=2.6.4

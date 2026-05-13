@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    color-scheme: dark;
+}
+
+html,
+body,
+#root {
+    min-height: 100%;
+    background: hsl(222 47% 6%);
+}
+
+body {
+    margin: 0;
+    font-family:
+        'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
+        'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: hsl(210 20% 96%);
+}
+
+.font-mono,
+code {
+    font-family:
+        'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        'Liberation Mono', 'Courier New', monospace;
+    font-feature-settings: 'tnum' 1, 'zero' 1;
+}
+
+.font-display {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    letter-spacing: -0.01em;
+}
+
+@layer base {
+    :root {
+        --background: 222 47% 6%;
+        --foreground: 210 20% 96%;
+        --card: 222 44% 8%;
+        --card-foreground: 210 20% 96%;
+        --popover: 222 44% 8%;
+        --popover-foreground: 210 20% 96%;
+        --primary: 210 20% 96%;
+        --primary-foreground: 222 47% 6%;
+        --secondary: 222 28% 12%;
+        --secondary-foreground: 210 20% 96%;
+        --muted: 222 22% 14%;
+        --muted-foreground: 215 16% 70%;
+        --accent: 222 28% 12%;
+        --accent-foreground: 210 20% 96%;
+        --destructive: 0 62% 34%;
+        --destructive-foreground: 210 20% 96%;
+        --border: 222 18% 18%;
+        --input: 222 18% 18%;
+        --ring: 355 72% 52%;
+        --chart-1: 355 72% 52%;
+        --chart-2: 205 78% 56%;
+        --chart-3: 160 52% 46%;
+        --chart-4: 38 78% 58%;
+        --chart-5: 270 60% 62%;
+        --radius: 0.75rem;
+    }
+    .dark {
+        --background: 222 47% 6%;
+        --foreground: 210 20% 96%;
+        --card: 222 44% 8%;
+        --card-foreground: 210 20% 96%;
+        --popover: 222 44% 8%;
+        --popover-foreground: 210 20% 96%;
+        --primary: 210 20% 96%;
+        --primary-foreground: 222 47% 6%;
+        --secondary: 222 28% 12%;
+        --secondary-foreground: 210 20% 96%;
+        --muted: 222 22% 14%;
+        --muted-foreground: 215 16% 70%;
+        --accent: 222 28% 12%;
+        --accent-foreground: 210 20% 96%;
+        --destructive: 0 62% 34%;
+        --destructive-foreground: 210 20% 96%;
+        --border: 222 18% 18%;
+        --input: 222 18% 18%;
+        --ring: 355 72% 52%;
+        --chart-1: 355 72% 52%;
+        --chart-2: 205 78% 56%;
+        --chart-3: 160 52% 46%;
+        --chart-4: 38 78% 58%;
+        --chart-5: 270 60% 62%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+/* Subtle starfield-like noise overlay (very low opacity) */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image: radial-gradient(
+            1100px circle at 18% -10%,
+            rgba(58, 130, 255, 0.08),
+            transparent 55%
+        ),
+        radial-gradient(
+            900px circle at 92% 0%,
+            rgba(255, 59, 92, 0.05),
+            transparent 50%
+        );
+}
+
+#root {
+    position: relative;
+    z-index: 1;
+}
+
+/* Recharts tooltip dark style fallback */
+.recharts-tooltip-wrapper {
+    outline: none !important;
+}
+
+/* Reduce focus aggressiveness */
+*:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(255, 59, 92, 0.45);
+    border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+    }
+}
