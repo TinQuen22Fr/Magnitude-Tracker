@@ -338,7 +338,7 @@ export default function MagnitudeChart({ history, loading, periodLabel }) {
       }, 80);
       return () => clearTimeout(t);
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, selected]);
 
   return (
     <Card
