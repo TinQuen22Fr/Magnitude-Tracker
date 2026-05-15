@@ -1,5 +1,13 @@
 import { Link, useLocation } from "react-router-dom";
-import { Telescope, Settings2, Github, SlidersHorizontal, Moon, Sun } from "lucide-react";
+import {
+  Telescope,
+  Settings2,
+  Github,
+  SlidersHorizontal,
+  Moon,
+  Sun,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ReceptionStatus from "@/components/ReceptionStatus";
 import { useNightMode } from "@/lib/nightMode";
@@ -9,6 +17,7 @@ export default function AppShell({ children }) {
   const location = useLocation();
   const isSetup = location.pathname.startsWith("/setup");
   const isSettings = location.pathname.startsWith("/settings");
+  const isFlasher = location.pathname.startsWith("/flasher");
   const { isNight, toggleManual } = useNightMode();
 
   return (
@@ -67,6 +76,17 @@ export default function AppShell({ children }) {
                 aria-label="Réglages"
               >
                 <SlidersHorizontal className="size-4 sm:size-3.5" />
+              </Button>
+            </Link>
+            <Link to="/flasher" data-testid="main-nav-flasher-link">
+              <Button
+                variant={isFlasher ? "secondary" : "ghost"}
+                size="sm"
+                className="h-9 sm:h-8 w-9 sm:w-9 p-0"
+                aria-label="Flasher le firmware ESP en ligne"
+                title="Flasher le firmware ESP en ligne"
+              >
+                <Zap className="size-4 sm:size-3.5" />
               </Button>
             </Link>
             <Link to={isSetup ? "/" : "/setup"} data-testid="main-nav-setup-link">
