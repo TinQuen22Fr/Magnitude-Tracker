@@ -1,12 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BORTLE_SEGMENTS, bortleFromMag, classifyMag } from "@/lib/skyQuality";
+import { BORTLE_SEGMENTS, bortleFromMag, classifyMag, toNightRed } from "@/lib/skyQuality";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
+import { useNightMode } from "@/lib/nightMode";
 
 export default function BortleIndicator({ mag }) {
   const active = bortleFromMag(mag);
   const quality = classifyMag(mag);
+  const { isNight } = useNightMode();
+  const colorize = (hex) => (isNight ? toNightRed(hex) : hex);
 
   return (
     <Card
@@ -42,7 +45,7 @@ export default function BortleIndicator({ mag }) {
                             ? "h-7 border-foreground/70 ring-1 ring-foreground/40"
                             : "h-4 border-border/60"
                         )}
-                        style={{ backgroundColor: seg.hex }}
+                        style={{ backgroundColor: colorize(seg.hex) }}
                       />
                       <span
                         className={cn(
@@ -79,7 +82,7 @@ export default function BortleIndicator({ mag }) {
             <div className="flex items-center gap-2 text-xs">
               <span
                 className="inline-block size-2 rounded-full"
-                style={{ backgroundColor: quality.hex }}
+                style={{ backgroundColor: colorize(quality.hex) }}
               />
               <span className="text-muted-foreground">{quality.description}</span>
             </div>

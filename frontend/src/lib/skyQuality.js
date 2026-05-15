@@ -107,3 +107,30 @@ export function bortleFromMag(mag) {
   if (mag >= 18.38) return 8;
   return 9;
 }
+
+/**
+ * Convertit une couleur hex quelconque en sa variante rouge "mode nuit"
+ * tout en préservant sa luminance perceptuelle.
+ *
+ * Principe : on calcule la luminance perçue (formule ITU-R BT.601) du
+ * pixel, puis on remappe cette luminance sur une teinte rouge pure
+ * (HSL hue=0). Une couleur bleu sombre devient un rouge sombre, un jaune
+ * clair devient un rouge clair. Pratique pour préserver la hiérarchie
+ * visuelle (échelle Bortle, badges) sans coder une palette parallèle.
+ *
+ * Plage de luminance cible : 15% → 70% pour rester lisible sur fond noir.
+ *
+ * @param  {string} hex   ex: "#0d2440" ou "0d2440"
+ * @return {string}       ex: "hsl(0 90% 22%)"
+ */
+export function toNightRed(hex) {
+  if (typeof hex !== "string") return "hsl(0 90% 50%)";
+  const m = hex.replace("#", "").match(/.{2}/g);
+  if (!m || m.length < 3) return "hsl(0 90% 50%)";
+  const [r, g, b] = m.map((h) => parseInt(h, 16));
+  // Luminance perçue (BT.601)
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  // Remap luminance vers le rouge mode nuit : 15% à 70%
+  const targetL = Math.round(15 + lum * 55);
+  return `hsl(0 90% ${targetL}%)`;
+}

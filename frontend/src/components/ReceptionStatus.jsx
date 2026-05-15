@@ -2,16 +2,21 @@ import { useEffect, useState } from "react";
 import { fetchLatest } from "@/lib/sqmApi";
 import { fmtRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useNightMode } from "@/lib/nightMode";
 
 /**
- * Header reception status pill.
- * - Green dot if last measurement < 2min
- * - Amber dot if 2-10min
- * - Red dot if > 10min or none
+ * Pastille d'état réception dans le header.
+ *  - vert    : dernière mesure < 2 min
+ *  - orange  : 2 → 10 min
+ *  - rouge   : > 10 min ou aucune
+ *
+ * En mode nuit astronomique, les 3 états sont déclinés en nuances de
+ * rouge (luminance différente) pour préserver la vision scotopique.
  */
 export default function ReceptionStatus() {
   const [latest, setLatest] = useState(null);
   const [tick, setTick] = useState(0);
+  const { isNight } = useNightMode();
 
   useEffect(() => {
     let cancelled = false;
@@ -33,28 +38,34 @@ export default function ReceptionStatus() {
     };
   }, []);
 
-  let color = "bg-destructive";
-  let ringColor = "ring-destructive/30";
+  // Détermine la sévérité (state) puis applique le bon couple de couleurs
+  let state = "ko";
   let label = "Aucune mesure";
   if (latest?.ts) {
     const ageMs = Date.now() - new Date(latest.ts).getTime();
     const min = ageMs / 60000;
-    if (min < 2) {
-      color = "bg-emerald-500";
-      ringColor = "ring-emerald-500/25";
-      label = `Reçu ${fmtRelative(latest.ts)}`;
-    } else if (min < 10) {
-      color = "bg-amber-500";
-      ringColor = "ring-amber-500/25";
-      label = `Reçu ${fmtRelative(latest.ts)}`;
-    } else {
-      color = "bg-destructive";
-      ringColor = "ring-destructive/30";
-      label = `Reçu ${fmtRelative(latest.ts)}`;
-    }
+    if (min < 2) state = "ok";
+    else if (min < 10) state = "warn";
+    else state = "ko";
+    label = `Reçu ${fmtRelative(latest.ts)}`;
   }
-  // tick is read so React keeps re-rendering the relative time
-  void tick;
+
+  // Palette adaptative : mode jour = vert/orange/rouge classique ;
+  // mode nuit = dégradé de rouges uniquement.
+  const palette = isNight
+    ? {
+        ok: { dot: "hsl(0 95% 60%)", ring: "rgba(255, 60, 60, 0.25)" },
+        warn: { dot: "hsl(0 80% 45%)", ring: "rgba(200, 40, 40, 0.25)" },
+        ko: { dot: "hsl(0 70% 32%)", ring: "rgba(140, 25, 25, 0.30)" },
+      }
+    : {
+        ok: { dot: "#10b981", ring: "rgba(16, 185, 129, 0.25)" }, // emerald-500
+        warn: { dot: "#f59e0b", ring: "rgba(245, 158, 11, 0.25)" }, // amber-500
+        ko: { dot: "#a93b3b", ring: "rgba(169, 59, 59, 0.30)" }, // destructive
+      };
+  const colors = palette[state];
+
+  void tick; // garde le re-render relatif au tick
 
   return (
     <div
@@ -63,11 +74,11 @@ export default function ReceptionStatus() {
       title={latest?.ts || "Aucune mesure reçue"}
     >
       <span
-        className={cn(
-          "inline-block size-2 rounded-full ring-2 sm:ring-4",
-          color,
-          ringColor
-        )}
+        className={cn("inline-block size-2 rounded-full")}
+        style={{
+          backgroundColor: colors.dot,
+          boxShadow: `0 0 0 4px ${colors.ring}`,
+        }}
         data-testid="reception-status-dot"
       />
       <span data-testid="reception-status-text">{label}</span>

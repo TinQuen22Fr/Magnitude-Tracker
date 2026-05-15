@@ -5,6 +5,43 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#070A12" />
         <meta name="description" content="SQM Nightwatch — Tableau de bord pour capteur de pollution lumineuse SQM-LE DIY (ESP8266)." />
+
+        <!--
+          Script anti-FOUC (Flash Of Unstyled Content).
+          Lit le préférences "Mode Nuit Astronomique" stockées en
+          localStorage et applique la classe .night-mode sur <html>
+          AVANT que React rende le DOM. Évite le flash bleu/blanc au
+          chargement de la page.
+
+          Clés localStorage attendues (gérées par src/lib/nightMode.js) :
+            sqm_night_mode : "true" si l'utilisateur a activé le mode nuit
+                             manuellement (toggle dans le header)
+            sqm_night_auto : "true" si l'utilisateur a activé
+                             l'auto-activation horaire 21h-6h
+        -->
+        <script>
+          (function () {
+            try {
+              var manual = localStorage.getItem('sqm_night_mode') === 'true';
+              var auto = localStorage.getItem('sqm_night_auto') === 'true';
+              var isNight = manual;
+              if (!isNight && auto) {
+                var h = new Date().getHours();
+                isNight = h >= 21 || h < 6;
+              }
+              if (isNight) {
+                document.documentElement.classList.add('night-mode');
+                // Évite le flash blanc le temps que la CSS charge
+                document.documentElement.style.background = '#000';
+                var metaTheme = document.querySelector('meta[name="theme-color"]');
+                if (metaTheme) metaTheme.setAttribute('content', '#000000');
+              }
+            } catch (e) {
+              /* localStorage indisponible (mode privé) : on ignore */
+            }
+          })();
+        </script>
+
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />

@@ -1,12 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
-import { Telescope, Settings2, Github, SlidersHorizontal } from "lucide-react";
+import { Telescope, Settings2, Github, SlidersHorizontal, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ReceptionStatus from "@/components/ReceptionStatus";
+import { useNightMode } from "@/lib/nightMode";
 
 export default function AppShell({ children }) {
   const location = useLocation();
   const isSetup = location.pathname.startsWith("/setup");
   const isSettings = location.pathname.startsWith("/settings");
+  const { isNight, toggleManual } = useNightMode();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -38,6 +40,24 @@ export default function AppShell({ children }) {
 
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             <ReceptionStatus />
+
+            {/* Toggle Mode Nuit Astronomique */}
+            <Button
+              variant={isNight ? "secondary" : "ghost"}
+              size="sm"
+              className="h-9 sm:h-8 w-9 sm:w-9 p-0"
+              onClick={toggleManual}
+              aria-label={isNight ? "Désactiver le mode nuit" : "Activer le mode nuit astronomique"}
+              title={isNight ? "Désactiver le mode nuit" : "Mode nuit astronomique (rouge)"}
+              data-testid="night-mode-toggle"
+            >
+              {isNight ? (
+                <Sun className="size-4 sm:size-3.5" />
+              ) : (
+                <Moon className="size-4 sm:size-3.5" />
+              )}
+            </Button>
+
             <Link to="/settings" data-testid="main-nav-settings-link">
               <Button
                 variant={isSettings ? "secondary" : "ghost"}
@@ -72,7 +92,7 @@ export default function AppShell({ children }) {
       <footer className="border-t border-border/60 mt-12">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>
-            SQM Nightwatch v1.1 — Récepteur autonome pour capteur SQM-LE DIY
+            SQM Nightwatch v1.2 — Récepteur autonome pour capteur SQM-LE DIY
           </span>
           <span className="flex items-center gap-1.5">
             <Github className="size-3.5" /> Auto-hébergé · Données locales

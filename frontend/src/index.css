@@ -90,6 +90,50 @@ code {
         --chart-4: 38 78% 58%;
         --chart-5: 270 60% 62%;
     }
+
+    /*
+     * Mode Nuit Astronomique — palette rouge profond exclusive.
+     *
+     * Activé via la classe .night-mode sur <html> (gérée par le hook
+     * useNightMode + script anti-FOUC dans public/index.html).
+     *
+     * Principe : ne conserver que la longueur d'onde rouge (~620-700nm),
+     * la moins agressive pour la vision scotopique pendant les
+     * observations astronomiques. Toutes les variables CSS de Shadcn/UI
+     * sont surchargées en HSL avec hue=0 (rouge pur) ou très proche.
+     *
+     * Charts Recharts : les --chart-1..5 deviennent un dégradé de rouges
+     * suffisamment distincts pour conserver la lisibilité des courbes
+     * (magnitude, batterie, GPS).
+     */
+    html.night-mode,
+    html.night-mode .dark {
+        --background: 0 0% 0%;
+        --foreground: 0 90% 62%;
+        --card: 0 80% 4%;
+        --card-foreground: 0 90% 62%;
+        --popover: 0 80% 4%;
+        --popover-foreground: 0 90% 62%;
+        --primary: 0 90% 60%;
+        --primary-foreground: 0 0% 0%;
+        --secondary: 0 70% 8%;
+        --secondary-foreground: 0 90% 62%;
+        --muted: 0 60% 5%;
+        --muted-foreground: 0 70% 42%;
+        --accent: 0 70% 10%;
+        --accent-foreground: 0 90% 62%;
+        --destructive: 0 90% 40%;
+        --destructive-foreground: 0 0% 0%;
+        --border: 0 80% 11%;
+        --input: 0 80% 11%;
+        --ring: 0 100% 55%;
+        /* Dégradé de rouges pour les charts (luminance descendante) */
+        --chart-1: 0 95% 60%;
+        --chart-2: 0 85% 50%;
+        --chart-3: 0 75% 55%;
+        --chart-4: 10 90% 50%;
+        --chart-5: 0 65% 38%;
+    }
 }
 
 @layer base {
@@ -120,6 +164,23 @@ body::before {
         );
 }
 
+/* Mode Nuit : remplace le gradient bleu/rose par un gradient rouge profond */
+html.night-mode body {
+    background: #000000;
+}
+html.night-mode body::before {
+    background-image: radial-gradient(
+            1100px circle at 18% -10%,
+            rgba(255, 30, 30, 0.08),
+            transparent 55%
+        ),
+        radial-gradient(
+            900px circle at 92% 0%,
+            rgba(255, 0, 0, 0.05),
+            transparent 50%
+        );
+}
+
 #root {
     position: relative;
     z-index: 1;
@@ -135,6 +196,28 @@ body::before {
     outline: none;
     box-shadow: 0 0 0 2px rgba(255, 59, 92, 0.45);
     border-radius: 6px;
+}
+
+/* Mode Nuit : focus ring en rouge pur */
+html.night-mode *:focus-visible {
+    box-shadow: 0 0 0 2px rgba(255, 30, 30, 0.55);
+}
+
+/* Mode Nuit : sélection texte en rouge sombre */
+html.night-mode ::selection {
+    background: rgba(255, 30, 30, 0.35);
+    color: #ffb0b0;
+}
+
+/* Mode Nuit : sliders et tracks de scrollbar en teinte rouge */
+html.night-mode {
+    scrollbar-color: #5a0000 #000000;
+}
+
+/* Mode Nuit : neutralise toute image / favicon décorative qui pourrait
+   afficher du bleu/blanc (préservation vision scotopique) */
+html.night-mode img:not([data-keep-color]):not(.no-night-filter) {
+    filter: sepia(1) hue-rotate(-50deg) saturate(8) brightness(0.85);
 }
 
 @media (prefers-reduced-motion: reduce) {

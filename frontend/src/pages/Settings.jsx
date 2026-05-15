@@ -4,7 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Globe2, Save, RotateCcw, CheckCircle2, XCircle, Smartphone } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import {
+  Globe2,
+  Save,
+  RotateCcw,
+  CheckCircle2,
+  XCircle,
+  Smartphone,
+  Moon,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   getBackendUrl,
@@ -13,6 +22,7 @@ import {
   getDefaultBackendUrl,
   pingRoot,
 } from "@/lib/sqmApi";
+import { useNightMode } from "@/lib/nightMode";
 
 export default function Settings() {
   const [currentUrl, setCurrentUrl] = useState("");
@@ -172,7 +182,7 @@ export default function Settings() {
               className={
                 "rounded-md border p-3 text-xs flex items-start gap-2 " +
                 (testResult.ok
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                  ? "border-[hsl(var(--chart-3))]/40 bg-[hsl(var(--chart-3))]/10 text-[hsl(var(--chart-3))]"
                   : "border-destructive/40 bg-destructive/10 text-destructive-foreground")
               }
               data-testid="settings-test-result"
@@ -232,6 +242,28 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <Card className="border-border/70 bg-card/80" data-testid="settings-night-mode-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="font-display text-sm font-medium text-muted-foreground tracking-wide uppercase flex items-center gap-2">
+            <Moon className="size-4" /> Mode Nuit Astronomique
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Bascule toute l'interface en <strong className="text-foreground">rouge profond exclusif</strong> pour
+            préserver la vision scotopique pendant les observations nocturnes.
+            Le toggle dans le header de l'application active/désactive le
+            mode manuellement.
+          </p>
+
+          {/* Toggle manuel — duplique le bouton du header pour la cohérence */}
+          <NightModeManualRow />
+
+          {/* Toggle auto-mode horaire */}
+          <NightModeAutoRow />
+        </CardContent>
+      </Card>
+
       <Card className="border-border/70 bg-card/80">
         <CardHeader className="pb-3">
           <CardTitle className="font-display text-sm font-medium text-muted-foreground tracking-wide uppercase flex items-center gap-2">
@@ -259,6 +291,70 @@ export default function Settings() {
           </p>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Sous-composants Mode Nuit
+ * ------------------------------------------------------------------------- */
+
+function NightModeManualRow() {
+  const { manual, toggleManual, isNight } = useNightMode();
+  return (
+    <div
+      className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-muted/20 p-3"
+      data-testid="night-mode-manual-row"
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground flex items-center gap-2">
+          <Moon className="size-3.5 text-[hsl(var(--chart-1))]" />
+          Activation manuelle
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Active immédiatement le mode nuit. État actuel :{" "}
+          <span className="text-foreground font-medium">
+            {isNight ? "activé" : "désactivé"}
+          </span>
+        </p>
+      </div>
+      <Switch
+        checked={manual}
+        onCheckedChange={() => toggleManual()}
+        aria-label="Activer/désactiver le mode nuit manuellement"
+        data-testid="night-mode-manual-switch"
+      />
+    </div>
+  );
+}
+
+function NightModeAutoRow() {
+  const { autoSchedule, setAutoSchedule, nightHourWindow } = useNightMode();
+  const { start, end } = nightHourWindow;
+  const fmt = (h) => `${String(h).padStart(2, "0")}h00`;
+  return (
+    <div
+      className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-muted/20 p-3"
+      data-testid="night-mode-auto-row"
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">
+          Activation automatique{" "}
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {fmt(start)} → {fmt(end)}
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Active automatiquement le mode nuit pendant la plage horaire
+          ci-dessus, basée sur l'heure locale de l'appareil.
+        </p>
+      </div>
+      <Switch
+        checked={autoSchedule}
+        onCheckedChange={(v) => setAutoSchedule(v)}
+        aria-label="Activer la bascule automatique 21h-6h du mode nuit"
+        data-testid="night-mode-auto-switch"
+      />
     </div>
   );
 }

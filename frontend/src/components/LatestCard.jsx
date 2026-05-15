@@ -3,10 +3,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Moon, Sun, Thermometer, Clock } from "lucide-react";
 import { fmtDateTime, fmtNum, fmtLux, fmtRelative } from "@/lib/format";
-import { classifyMag } from "@/lib/skyQuality";
+import { classifyMag, toNightRed } from "@/lib/skyQuality";
+import { useNightMode } from "@/lib/nightMode";
 
 export default function LatestCard({ data, count, loading }) {
   const quality = data ? classifyMag(data.mag) : null;
+  const { isNight } = useNightMode();
 
   return (
     <Card
@@ -40,7 +42,7 @@ export default function LatestCard({ data, count, loading }) {
             >
               <span
                 className="inline-block size-2 rounded-full"
-                style={{ backgroundColor: quality.hex }}
+                style={{ backgroundColor: isNight ? toNightRed(quality.hex) : quality.hex }}
                 aria-hidden
               />
               <span data-testid="sky-quality-label">{quality.label}</span>
