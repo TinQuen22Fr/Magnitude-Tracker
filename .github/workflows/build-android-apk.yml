@@ -15,6 +15,11 @@ on:
         required: false
         default: ''
 
+# Permissions nécessaires pour que le GITHUB_TOKEN puisse créer une Release
+# et pousser un tag sur la branche magnitude-tracker-android.
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Build APK
@@ -50,6 +55,13 @@ jobs:
           fi
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "→ Build APK avec REACT_APP_BACKEND_URL=$URL"
+
+      - name: Extraction de la version frontend
+        id: version
+        run: |
+          VERSION=$(node -p "require('./frontend/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "→ Version frontend : v$VERSION"
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -145,9 +157,11 @@ jobs:
             find app/build/outputs -name '*.apk' || true
             exit 1
           fi
-          DEST="magnitude-tracker-${VARIANT}.apk"
+          # Nom final qui inclut la version pour identification facile
+          DEST="magnitude-tracker-v${{ steps.version.outputs.version }}-${VARIANT}.apk"
           cp "$FILE" "$DEST"
           echo "file=$DEST" >> "$GITHUB_OUTPUT"
+          echo "path=magnitude-tracker-android/android/$DEST" >> "$GITHUB_OUTPUT"
           echo "variant=$VARIANT" >> "$GITHUB_OUTPUT"
           echo "→ APK $VARIANT produit : $DEST ($(du -h $DEST | cut -f1))"
 
@@ -155,5 +169,57 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: magnitude-tracker-apk
-          path: magnitude-tracker-android/android/${{ steps.apk.outputs.file }}
+          path: ${{ steps.apk.outputs.path }}
           retention-days: 90
+
+      # ──────────────────────────────────────────────────────────────────
+      # Publication d'une GitHub Release UNIQUEMENT pour la branche
+      # `magnitude-tracker-android` (cf. condition `if`).
+      # Le tag inclut le numéro de run pour rester unique à chaque build.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Création GitHub Release (branche android uniquement)
+        if: github.ref == 'refs/heads/magnitude-tracker-android'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          VARIANT: ${{ steps.apk.outputs.variant }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          BACKEND_URL: ${{ steps.backend.outputs.url }}
+        run: |
+          TAG="android-v${VERSION}-build${{ github.run_number }}"
+          NAME="Magnitude Tracker Android v${VERSION} (build ${{ github.run_number }})"
+
+          # Notes de release
+          cat > /tmp/release-notes.md <<EOF
+          ## 📱 Magnitude Tracker Android — v${VERSION}
+
+          APK \`${VARIANT}\` généré automatiquement par GitHub Actions à partir du commit \`${{ github.sha }}\`.
+
+          **Backend URL compilée par défaut :** \`${BACKEND_URL}\`
+          (modifiable à tout moment dans l'écran Réglages de l'app)
+
+          ### Installation
+          1. Télécharger l'APK ci-dessous
+          2. Autoriser l'installation depuis sources inconnues sur Android
+          3. Ouvrir le fichier .apk pour installer
+
+          ---
+          *Build automatique — Run #${{ github.run_number }} — $(date -u +'%Y-%m-%d %H:%M UTC')*
+          EOF
+
+          # Préfixe le titre par "Pre-release" si APK debug
+          PRERELEASE_FLAG=""
+          if [ "$VARIANT" = "debug" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          # Création de la release (gh CLI préinstallé sur les runners)
+          gh release create "$TAG" \
+            --target magnitude-tracker-android \
+            --title "$NAME" \
+            --notes-file /tmp/release-notes.md \
+            $PRERELEASE_FLAG \
+            "$APK_PATH"
+
+          echo "→ Release créée : $TAG"
+          echo "→ URL : https://github.com/${{ github.repository }}/releases/tag/$TAG"
