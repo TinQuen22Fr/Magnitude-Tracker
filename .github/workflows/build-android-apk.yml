@@ -1,0 +1,159 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - magnitude-tracker-android
+    paths:
+      - 'frontend/**'
+      - 'magnitude-tracker-android/**'
+      - '.github/workflows/build-android-apk.yml'
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'URL backend par défaut compilée dans l''APK'
+        required: false
+        default: ''
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    env:
+      # URL backend par défaut compilée dans l'APK.
+      # Lue depuis le secret/variable repo APK_BACKEND_URL si présent,
+      # sinon depuis l'input du workflow_dispatch, sinon valeur ici.
+      # → Pour la définir une fois pour toutes :
+      #     Settings → Secrets and variables → Actions → New variable
+      #     Name: APK_BACKEND_URL  Value: https://sqm.quentin-astro.fr
+      DEFAULT_BACKEND_URL: 'https://sqm.example.com'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Résolution de l'URL backend
+        id: backend
+        env:
+          # Variable d'organisation/repo (Settings → Actions → Variables).
+          # Si non définie, fallback sur l'input du workflow_dispatch, puis sur le défaut.
+          VAR_URL: ${{ vars.APK_BACKEND_URL }}
+        run: |
+          URL="${{ github.event.inputs.backend_url }}"
+          if [ -z "$URL" ] && [ -n "$VAR_URL" ]; then
+            URL="$VAR_URL"
+          fi
+          if [ -z "$URL" ]; then
+            URL="$DEFAULT_BACKEND_URL"
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "→ Build APK avec REACT_APP_BACKEND_URL=$URL"
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Pas de cache: yarn.lock n'est pas toujours présent sur la branche
+          # (filtré par certains outils de push). yarn install le régénère.
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      - name: Install frontend deps
+        working-directory: frontend
+        # `yarn install` (sans --frozen-lockfile) accepte un yarn.lock absent
+        # et le régénère à partir de package.json.
+        run: yarn install --network-timeout 600000
+
+      - name: Build React frontend
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: ${{ steps.backend.outputs.url }}
+          CI: 'false'
+        run: yarn build
+
+      - name: Install Capacitor deps
+        working-directory: magnitude-tracker-android
+        run: npm install
+
+      - name: Add Android platform (capacitor)
+        working-directory: magnitude-tracker-android
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Detect signing secrets
+        id: signing
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup release signing
+        if: steps.signing.outputs.sign == 'true'
+        working-directory: magnitude-tracker-android/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > app/release.keystore
+          cat <<EOF > keystore.properties
+          storeFile=release.keystore
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build APK (debug)
+        if: steps.signing.outputs.sign != 'true'
+        working-directory: magnitude-tracker-android/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Build APK (release signé)
+        if: steps.signing.outputs.sign == 'true'
+        working-directory: magnitude-tracker-android/android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Localiser l'APK
+        id: apk
+        working-directory: magnitude-tracker-android/android
+        run: |
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            FILE="app/build/outputs/apk/release/app-release.apk"
+            VARIANT="release"
+          elif [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            FILE="app/build/outputs/apk/debug/app-debug.apk"
+            VARIANT="debug"
+          else
+            echo "!! APK introuvable"
+            find app/build/outputs -name '*.apk' || true
+            exit 1
+          fi
+          DEST="magnitude-tracker-${VARIANT}.apk"
+          cp "$FILE" "$DEST"
+          echo "file=$DEST" >> "$GITHUB_OUTPUT"
+          echo "variant=$VARIANT" >> "$GITHUB_OUTPUT"
+          echo "→ APK $VARIANT produit : $DEST ($(du -h $DEST | cut -f1))"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magnitude-tracker-apk
+          path: magnitude-tracker-android/android/${{ steps.apk.outputs.file }}
+          retention-days: 90

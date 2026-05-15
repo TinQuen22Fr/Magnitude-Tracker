@@ -1,0 +1,23 @@
+{
+  "name": "magnitude-tracker-android",
+  "version": "1.1.1",
+  "private": true,
+  "description": "Wrapper Capacitor pour SQM Nightwatch — Magnitude Tracker (Android APK)",
+  "scripts": {
+    "build:web": "cd ../frontend && yarn install --frozen-lockfile && yarn build",
+    "init:android": "npx cap add android",
+    "sync": "npx cap sync android",
+    "copy": "npx cap copy android",
+    "open": "npx cap open android",
+    "build:apk:debug": "cd android && ./gradlew assembleDebug",
+    "build:apk:release": "cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/cli": "^6.1.0",
+    "@capacitor/core": "^6.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
