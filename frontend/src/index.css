@@ -220,6 +220,15 @@ html.night-mode img:not([data-keep-color]):not(.no-night-filter) {
     filter: sepia(1) hue-rotate(-50deg) saturate(8) brightness(0.85);
 }
 
+/* Mode Nuit : carte OSM intégrée (iframe) en rouge profond.
+   Combinaison sepia + hue-rotate + saturate qui convertit le rendu
+   multicolore OSM (vert/bleu/blanc/jaune) en monochrome rouge, tout
+   en préservant les contrastes structurels (routes, contours, labels). */
+html.night-mode iframe.osm-night-filter,
+html.night-mode .osm-night-filter > iframe {
+    filter: grayscale(1) sepia(1) saturate(8) hue-rotate(-50deg) brightness(0.65) contrast(1.15);
+}
+
 @media (prefers-reduced-motion: reduce) {
     * {
         animation-duration: 0.001ms !important;

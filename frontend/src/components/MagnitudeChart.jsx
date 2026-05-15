@@ -12,6 +12,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   MapPin,
   ExternalLink,
   X,
@@ -19,8 +27,10 @@ import {
   ChevronLeft,
   ChevronRight,
   StepForward,
+  AlertTriangle,
 } from "lucide-react";
 import { fmtNum, fmtTime, fmtDateTime } from "@/lib/format";
+import { useNightMode } from "@/lib/nightMode";
 
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
@@ -76,8 +86,110 @@ function CustomTooltip({ active, payload }) {
   );
 }
 
-function osmUrl(lat, lon) {
+function osmExternalUrl(lat, lon) {
   return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}`;
+}
+
+/**
+ * URL "embed" d'OpenStreetMap (iframe) centrée sur lat/lon avec marqueur.
+ * On calcule une bbox de ±0.005° autour du point (zoom ~15).
+ */
+function osmEmbedUrl(lat, lon) {
+  const d = 0.005;
+  const west = lat - d;
+  const east = lat + d;
+  const south = lon - d;
+  const north = lon + d;
+  // OSM attend l'ordre: bbox=lonMin,latMin,lonMax,latMax
+  const bbox = `${south},${west},${north},${east}`;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
+}
+
+/**
+ * Bouton + Dialog : ouvre la carte OSM EMBARQUÉE dans une modal.
+ * En mode nuit, l'iframe est filtrée en rouge pour préserver la vision
+ * scotopique. Un lien secondaire permet d'ouvrir OSM dans un nouvel
+ * onglet (assorti d'un avertissement en mode nuit).
+ */
+function GpsMapDialog({ lat, lon }) {
+  const { isNight } = useNightMode();
+  const [open, setOpen] = useState(false);
+  const externalUrl = osmExternalUrl(lat, lon);
+  const embedUrl = osmEmbedUrl(lat, lon);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="inline-flex items-center justify-center gap-2 w-full sm:w-auto sm:self-start h-11 sm:h-10 text-sm font-medium text-[hsl(var(--chart-2))] border-[hsl(var(--chart-2))]/40 hover:border-[hsl(var(--chart-2))]/60"
+          data-testid="selected-gps-map-link"
+        >
+          <MapPin className="size-4" />
+          Voir sur la carte
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        className="max-w-3xl w-[min(96vw,768px)] p-0 overflow-hidden bg-card border-border/70"
+        data-testid="gps-map-dialog"
+      >
+        <DialogHeader className="px-4 pt-4 pb-2">
+          <DialogTitle className="font-display text-base flex items-center gap-2">
+            <MapPin className="size-4 text-[hsl(var(--chart-1))]" />
+            Position du capteur
+          </DialogTitle>
+          <DialogDescription className="font-mono text-xs">
+            Lat {fmtNum(lat, 6)}° · Lon {fmtNum(lon, 6)}°
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="px-4 pb-2">
+          <div
+            className={
+              "relative w-full aspect-[16/10] rounded-md overflow-hidden border border-border/60 " +
+              (isNight ? "osm-night-filter" : "")
+            }
+          >
+            <iframe
+              title="OpenStreetMap"
+              src={embedUrl}
+              className="absolute inset-0 w-full h-full"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              data-testid="gps-map-iframe"
+            />
+          </div>
+        </div>
+
+        <div className="px-4 pb-4 pt-1 flex flex-col gap-2">
+          {isNight && (
+            <div
+              className="rounded-md border border-[hsl(var(--chart-1))]/40 bg-[hsl(var(--chart-1))]/5 px-3 py-2 flex items-start gap-2 text-xs"
+              data-testid="gps-map-night-warning"
+            >
+              <AlertTriangle className="size-4 shrink-0 mt-0.5 text-[hsl(var(--chart-1))]" />
+              <span className="text-foreground/85">
+                Mode nuit actif. Ouvrir la carte dans un nouvel onglet
+                affichera les couleurs OpenStreetMap d'origine
+                (blanc/bleu/vert) — votre vision scotopique sera perdue.
+              </span>
+            </div>
+          )}
+          <a
+            href={externalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
+            data-testid="gps-map-external-link"
+          >
+            <ExternalLink className="size-3.5" />
+            Ouvrir dans un nouvel onglet (OpenStreetMap)
+          </a>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function SelectedMeasurePanel({
@@ -219,16 +331,7 @@ function SelectedMeasurePanel({
               )}
             </div>
           </div>
-          <a
-            href={osmUrl(data.gps.lat, data.gps.lon)}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid="selected-gps-map-link"
-            className="inline-flex items-center justify-center gap-2 w-full sm:w-auto sm:self-start text-sm font-medium text-[hsl(var(--chart-2))] hover:underline border border-[hsl(var(--chart-2))]/40 hover:border-[hsl(var(--chart-2))]/60 rounded-md px-4 py-3 transition-colors"
-          >
-            <ExternalLink className="size-4" />
-            Ouvrir sur la carte (OpenStreetMap)
-          </a>
+          <GpsMapDialog lat={data.gps.lat} lon={data.gps.lon} />
         </div>
       ) : (
         <div className="mt-4 pt-3 border-t border-border/60 text-xs text-muted-foreground italic">

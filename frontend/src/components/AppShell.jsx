@@ -3,6 +3,7 @@ import { Telescope, Settings2, Github, SlidersHorizontal, Moon, Sun } from "luci
 import { Button } from "@/components/ui/button";
 import ReceptionStatus from "@/components/ReceptionStatus";
 import { useNightMode } from "@/lib/nightMode";
+import { APP_VERSION } from "@/lib/version";
 
 export default function AppShell({ children }) {
   const location = useLocation();
@@ -92,7 +93,7 @@ export default function AppShell({ children }) {
       <footer className="border-t border-border/60 mt-12">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>
-            SQM Nightwatch v1.2 — Récepteur autonome pour capteur SQM-LE DIY
+            SQM Nightwatch v{APP_VERSION} — Récepteur autonome pour capteur SQM-LE DIY
           </span>
           <span className="flex items-center gap-1.5">
             <Github className="size-3.5" /> Auto-hébergé · Données locales
