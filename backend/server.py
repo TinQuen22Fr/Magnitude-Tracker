@@ -341,19 +341,48 @@ async def sqm_info():
 # ---------------------------------------------------------------------------
 # Firmware proxy : contourne le CORS bloquant de GitHub Releases
 # ---------------------------------------------------------------------------
-async def _fetch_latest_release() -> dict:
-    """Récupère (avec cache) les métadonnées de la dernière release firmware.
+# Canaux supportés pour le firmware :
+#   - stable : pointe vers /releases/latest (= dernière release officielle
+#              taguée vX.Y.Z sur main, prête pour la prod)
+#   - beta   : pointe vers le tag /releases/latest-wifimanager (= pre-release
+#              de la branche wifimanager, pour tester les nouveautés)
+#
+# Pour ajouter d'autres canaux plus tard, juste étendre FIRMWARE_CHANNELS.
+FIRMWARE_CHANNELS = {
+    'stable': {
+        'github_endpoint': 'releases/latest',
+        'label': 'Stable',
+    },
+    'beta': {
+        'github_endpoint': 'releases/tags/latest-wifimanager',
+        'label': 'Beta WiFiManager',
+    },
+}
+
+def _resolve_channel(channel: Optional[str]) -> str:
+    """Normalise le canal demandé. Tombe sur 'stable' si invalide."""
+    if not channel:
+        return 'stable'
+    c = channel.strip().lower()
+    return c if c in FIRMWARE_CHANNELS else 'stable'
+
+
+async def _fetch_release(channel: str) -> dict:
+    """Récupère (avec cache par canal) les métadonnées de la release firmware.
 
     Cache TTL : FIRMWARE_META_TTL secondes. Si l'appel échoue mais qu'on a
     une valeur cachée, on la renvoie quand même (tolérance aux pannes API).
     """
     now = time.time()
+    cache_key = f'release:{channel}'
     async with _firmware_cache_lock:
-        cached = _firmware_cache['release']
-        if cached and now < _firmware_cache['expires_at']:
+        cached = _firmware_cache.get(cache_key)
+        cached_expiry = _firmware_cache.get(f'{cache_key}_expires', 0)
+        if cached and now < cached_expiry:
             return cached
 
-    url = f'https://api.github.com/repos/{FIRMWARE_OWNER}/{FIRMWARE_REPO}/releases/latest'
+    endpoint = FIRMWARE_CHANNELS[channel]['github_endpoint']
+    url = f'https://api.github.com/repos/{FIRMWARE_OWNER}/{FIRMWARE_REPO}/{endpoint}'
     headers = {'Accept': 'application/vnd.github+json'}
     token = os.environ.get('GITHUB_TOKEN', '').strip()
     if token:
@@ -365,21 +394,25 @@ async def _fetch_latest_release() -> dict:
             resp.raise_for_status()
             release = resp.json()
     except Exception as exc:  # noqa: BLE001
-        # Si on a une vieille valeur cachée, on la renvoie en mode dégradé
         async with _firmware_cache_lock:
-            if _firmware_cache['release']:
+            if _firmware_cache.get(cache_key):
                 logger.warning(
-                    f'GitHub release fetch failed ({exc}) — fallback sur cache')
-                return _firmware_cache['release']
+                    f'GitHub release ({channel}) fetch failed ({exc}) — fallback cache')
+                return _firmware_cache[cache_key]
         raise HTTPException(
             status_code=502,
-            detail=f'Impossible de récupérer la release firmware GitHub: {exc}',
+            detail=f'Impossible de récupérer la release {channel}: {exc}',
         )
 
     async with _firmware_cache_lock:
-        _firmware_cache['release'] = release
-        _firmware_cache['expires_at'] = now + FIRMWARE_META_TTL
+        _firmware_cache[cache_key] = release
+        _firmware_cache[f'{cache_key}_expires'] = now + FIRMWARE_META_TTL
     return release
+
+
+# Compatibilité : ancien helper (canal stable uniquement)
+async def _fetch_latest_release() -> dict:
+    return await _fetch_release('stable')
 
 
 def _find_firmware_asset(release: dict) -> dict:
@@ -398,20 +431,24 @@ def _find_firmware_asset(release: dict) -> dict:
 
 
 @api_router.get('/firmware/esp8266/manifest.json')
-async def firmware_manifest_esp8266():
+async def firmware_manifest_esp8266(channel: Optional[str] = Query(default='stable')):
     """Manifest ESP Web Tools dynamique pour le firmware ESP8266.
 
     Génère à la volée le JSON attendu par <esp-web-install-button>, en
     pointant vers /api/firmware/esp8266/firmware.bin (servi par ce backend,
     pas par GitHub directement → évite le blocage CORS).
+
+    Le query param `channel` (stable|beta) sélectionne la release ciblée.
     """
-    release = await _fetch_latest_release()
+    ch = _resolve_channel(channel)
+    release = await _fetch_release(ch)
     _find_firmware_asset(release)  # 404 propre si manquant
     version = release.get('tag_name', 'latest')
+    label = FIRMWARE_CHANNELS[ch]['label']
 
     manifest = {
         '$schema': 'https://esphome.github.io/esp-web-tools/manifest.schema.json',
-        'name': f'SQM Pro — Firmware ESP8266 {version}',
+        'name': f'SQM Pro — Firmware ESP8266 {version} ({label})',
         'version': version,
         'funding_url': f'https://github.com/{FIRMWARE_OWNER}/{FIRMWARE_REPO}',
         'new_install_prompt_erase': True,
@@ -421,10 +458,10 @@ async def firmware_manifest_esp8266():
                 'improv': False,
                 'parts': [
                     {
-                        # Chemin RELATIF au manifest pour rester portable
-                        # (dev local, prod, derrière proxy, etc.).
-                        # ESP Web Tools résout ça contre l'URL du manifest.
-                        'path': 'firmware.bin',
+                        # Chemin RELATIF au manifest, en passant le canal
+                        # comme query param pour que firmware.bin retourne
+                        # bien le bon binaire.
+                        'path': f'firmware.bin?channel={ch}',
                         'offset': 0,
                     }
                 ],
@@ -441,30 +478,28 @@ async def firmware_manifest_esp8266():
 
 
 @api_router.get('/firmware/esp8266/firmware.bin')
-async def firmware_binary_esp8266():
-    """Proxy du firmware .bin depuis la dernière release GitHub.
+async def firmware_binary_esp8266(channel: Optional[str] = Query(default='stable')):
+    """Proxy du firmware .bin depuis la release GitHub du canal demandé.
 
     - Télécharge depuis GitHub avec Accept: application/octet-stream
-    - Met en cache mémoire (TTL FIRMWARE_BIN_TTL) pour ne pas hammer GitHub
-    - Renvoie avec les headers CORS adéquats pour ESP Web Tools (fetch
-      depuis un autre origin si servi via un sous-domaine, etc.)
+    - Met en cache mémoire (TTL FIRMWARE_BIN_TTL) par canal
+    - Renvoie avec les headers CORS adéquats pour ESP Web Tools
     """
-    release = await _fetch_latest_release()
+    ch = _resolve_channel(channel)
+    release = await _fetch_release(ch)
     asset = _find_firmware_asset(release)
-    asset_url = asset.get('url')  # API URL (pas browser_download_url) :
-                                  # permet de passer Accept: octet-stream
+    asset_url = asset.get('url')
     version = release.get('tag_name', 'latest')
 
     now = time.time()
-    cache_key = f"{version}|{asset.get('id')}"
+    bin_cache_key = f"bin:{ch}:{version}:{asset.get('id')}"
 
     async with _firmware_cache_lock:
         if (
-            _firmware_cache['bin_bytes'] is not None
-            and _firmware_cache['bin_etag'] == cache_key
-            and now < _firmware_cache['bin_expires_at']
+            _firmware_cache.get(bin_cache_key) is not None
+            and now < _firmware_cache.get(f'{bin_cache_key}_expires', 0)
         ):
-            content = _firmware_cache['bin_bytes']
+            content = _firmware_cache[bin_cache_key]
             cached_hit = True
         else:
             cached_hit = False
@@ -482,14 +517,13 @@ async def firmware_binary_esp8266():
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=502,
-                detail=f'Téléchargement du firmware depuis GitHub échoué: {exc}',
+                detail=f'Téléchargement firmware ({ch}) échoué: {exc}',
             )
         async with _firmware_cache_lock:
-            _firmware_cache['bin_bytes'] = content
-            _firmware_cache['bin_etag'] = cache_key
-            _firmware_cache['bin_expires_at'] = now + FIRMWARE_BIN_TTL
+            _firmware_cache[bin_cache_key] = content
+            _firmware_cache[f'{bin_cache_key}_expires'] = now + FIRMWARE_BIN_TTL
         logger.info(
-            f'Firmware {version} ({FIRMWARE_ASSET_NAME}) téléchargé '
+            f'Firmware {ch} {version} téléchargé '
             f'({len(content)/1024:.1f} Ko) et mis en cache.'
         )
 
@@ -501,6 +535,7 @@ async def firmware_binary_esp8266():
                 f'attachment; filename={FIRMWARE_ASSET_NAME}'
             ),
             'X-Firmware-Version': version,
+            'X-Firmware-Channel': ch,
             'Cache-Control': 'public, max-age=300',
             'Access-Control-Allow-Origin': '*',
         },
@@ -508,13 +543,14 @@ async def firmware_binary_esp8266():
 
 
 @api_router.get('/firmware/esp8266/info')
-async def firmware_info_esp8266():
-    """Métadonnées publiques sur la dernière release firmware.
+async def firmware_info_esp8266(channel: Optional[str] = Query(default='stable')):
+    """Métadonnées publiques sur la release firmware du canal demandé.
 
     Utile pour afficher la version courante dans l'UI Flasher sans avoir à
     appeler l'API GitHub depuis le navigateur (qui poserait du CORS).
     """
-    release = await _fetch_latest_release()
+    ch = _resolve_channel(channel)
+    release = await _fetch_release(ch)
     try:
         asset = _find_firmware_asset(release)
         asset_info = {
@@ -525,12 +561,27 @@ async def firmware_info_esp8266():
     except HTTPException:
         asset_info = None
     return {
+        'channel': ch,
+        'channel_label': FIRMWARE_CHANNELS[ch]['label'],
         'version': release.get('tag_name'),
         'name': release.get('name'),
         'published_at': release.get('published_at'),
+        'prerelease': release.get('prerelease', False),
         'html_url': release.get('html_url'),
         'asset': asset_info,
         'source_repo': f'https://github.com/{FIRMWARE_OWNER}/{FIRMWARE_REPO}',
+    }
+
+
+@api_router.get('/firmware/esp8266/channels')
+async def firmware_channels_esp8266():
+    """Liste les canaux firmware disponibles (pour peupler un toggle UI)."""
+    return {
+        'channels': [
+            {'id': cid, 'label': cfg['label']}
+            for cid, cfg in FIRMWARE_CHANNELS.items()
+        ],
+        'default': 'stable',
     }
 
 
