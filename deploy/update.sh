@@ -91,30 +91,84 @@ if [ "$SKIP_FRONTEND" != "1" ]; then
   sudo -u "$SERVICE_USER" bash -c \
     "cd '$INSTALL_DIR/frontend' && yarn install --frozen-lockfile 2>&1 | tail -5"
 
-  # Récupère l'URL backend depuis le service systemd (REACT_APP_BACKEND_URL
-  # est compilé dans le bundle React, donc doit refléter le domaine prod)
-  BACKEND_URL=""
-  if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
-    BACKEND_URL=$(grep -oP 'REACT_APP_BACKEND_URL=\K[^"\s]+' \
-      "/etc/systemd/system/${SERVICE_NAME}.service" 2>/dev/null || true)
-  fi
+  # ── Détection robuste de REACT_APP_BACKEND_URL ───────────────────────
+  # Cette variable est figée dans le bundle React au moment du build :
+  # si elle est vide ou incorrecte, l'app affiche `-` au lieu du host
+  # dans /setup et ne peut plus pousser depuis l'APK Android.
+  #
+  # Ordre de résolution :
+  #   1. $REACT_APP_BACKEND_URL si explicitement passé au script
+  #   2. /opt/sqm-nightwatch/frontend/.env (persistant entre updates)
+  #   3. deploy/.env.local (variable BACKEND_URL_OVERRIDE)
+  #   4. vhost NGINX (server_name de /etc/nginx/sites-enabled/)
+  #   5. Demande interactive (mode TTY uniquement)
+  BACKEND_URL="${REACT_APP_BACKEND_URL:-}"
+
   if [ -z "$BACKEND_URL" ] && [ -f "$INSTALL_DIR/frontend/.env" ]; then
-    BACKEND_URL=$(grep -oP 'REACT_APP_BACKEND_URL=\K.+' \
-      "$INSTALL_DIR/frontend/.env" 2>/dev/null || true)
-  fi
-  if [ -z "$BACKEND_URL" ]; then
-    # Dernier recours : déduire depuis le vhost NGINX
-    BACKEND_URL=$(grep -hroP 'server_name\s+\K[^;\s]+' \
-      /etc/nginx/sites-enabled/ 2>/dev/null | grep -v '^_$' | head -1 || true)
-    [ -n "$BACKEND_URL" ] && BACKEND_URL="https://$BACKEND_URL"
+    # Récupère la valeur après '=' et retire d'éventuelles quotes
+    BACKEND_URL=$(awk -F= '/^REACT_APP_BACKEND_URL=/{
+      v=$2; sub(/^["'\'']/, "", v); sub(/["'\'']$/, "", v); print v; exit
+    }' "$INSTALL_DIR/frontend/.env" 2>/dev/null || true)
   fi
 
-  echo "==> 5/6  Frontend : yarn build (REACT_APP_BACKEND_URL=${BACKEND_URL:-non détecté})"
+  if [ -z "$BACKEND_URL" ] && [ -n "${BACKEND_URL_OVERRIDE:-}" ]; then
+    BACKEND_URL="$BACKEND_URL_OVERRIDE"
+  fi
+
+  if [ -z "$BACKEND_URL" ]; then
+    # Cherche un vhost NGINX avec un server_name qui n'est pas '_' ni 'localhost'
+    NGINX_HOST=$(grep -hE '^\s*server_name\s+' /etc/nginx/sites-enabled/*.conf \
+      /etc/nginx/sites-enabled/* 2>/dev/null \
+      | sed -E 's/^\s*server_name\s+//; s/;\s*$//' \
+      | tr ' ' '\n' \
+      | grep -vE '^(_|localhost|default)$' \
+      | head -1 || true)
+    if [ -n "$NGINX_HOST" ]; then
+      BACKEND_URL="https://$NGINX_HOST"
+      echo "    -> URL détectée depuis NGINX: $BACKEND_URL"
+    fi
+  fi
+
+  if [ -z "$BACKEND_URL" ]; then
+    if [ -t 0 ]; then
+      echo ""
+      read -p "    URL backend (ex: https://sqm.exemple.fr): " BACKEND_URL
+    else
+      echo "    !! REACT_APP_BACKEND_URL introuvable. Définissez-la dans"
+      echo "       $INSTALL_DIR/frontend/.env ou via la variable d'env."
+      exit 1
+    fi
+  fi
+
+  # Normalisation (retrait trailing slash)
+  BACKEND_URL="${BACKEND_URL%/}"
+
+  # ── Persistance : écrit/met à jour frontend/.env pour les prochains builds
+  # Ainsi le script n'a plus besoin de redétecter à chaque update.sh.
+  if ! grep -qE "^REACT_APP_BACKEND_URL=${BACKEND_URL}$" \
+        "$INSTALL_DIR/frontend/.env" 2>/dev/null; then
+    echo "    -> Persistance dans frontend/.env (REACT_APP_BACKEND_URL=$BACKEND_URL)"
+    # On crée/écrase le fichier (il ne contient que cette variable côté CRA)
+    echo "REACT_APP_BACKEND_URL=$BACKEND_URL" \
+      > "$INSTALL_DIR/frontend/.env"
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/frontend/.env"
+  fi
+
+  echo "==> 5/6  Frontend : yarn build (REACT_APP_BACKEND_URL=$BACKEND_URL)"
   # Suppression préventive du dossier build pour éviter EACCES si un build
   # précédent a laissé des fichiers root:
   rm -rf "$INSTALL_DIR/frontend/build"
   sudo -u "$SERVICE_USER" bash -c \
     "cd '$INSTALL_DIR/frontend' && REACT_APP_BACKEND_URL='$BACKEND_URL' yarn build 2>&1 | tail -10"
+
+  # Sanity check : vérifie que l'URL est bien dans le bundle JS
+  if ! grep -qrF "$BACKEND_URL" "$INSTALL_DIR/frontend/build/static/js/" 2>/dev/null; then
+    echo "    !! ATTENTION : '$BACKEND_URL' non trouvée dans le bundle final."
+    echo "       Le frontend risque d'afficher '-' à la place du host."
+    echo "       Vérifiez frontend/.env et relancez le build."
+  else
+    echo "    -> bundle vérifié, URL backend correctement compilée ✓"
+  fi
 else
   echo "==> 4-5/6  Frontend (skip)"
 fi
