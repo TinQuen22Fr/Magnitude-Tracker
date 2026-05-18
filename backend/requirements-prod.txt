@@ -8,3 +8,4 @@ fastapi==0.110.1
 uvicorn[standard]==0.25.0
 python-dotenv>=1.0.1
 pydantic>=2.6.4
+httpx>=0.27.0      # proxy backend → GitHub Releases (firmware ESP8266)
