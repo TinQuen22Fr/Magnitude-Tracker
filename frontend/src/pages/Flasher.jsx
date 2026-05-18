@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Cpu,
   Github,
@@ -13,6 +14,7 @@ import {
   Zap,
   Info,
   ExternalLink,
+  FlaskConical,
 } from "lucide-react";
 import { getBackendUrl } from "@/lib/sqmApi";
 
@@ -25,20 +27,25 @@ const FIRMWARE_SOURCE_URL = "https://github.com/TinQuen22Fr/SQM-Pro-ESP8266";
 const RELEASES_URL =
   "https://github.com/TinQuen22Fr/SQM-Pro-ESP8266/releases";
 
+const STORAGE_KEY_CHANNEL = "sqm_firmware_channel";
+
 /**
  * Manifest ESP Web Tools : on passe par le backend FastAPI qui proxifie
  * le .bin depuis GitHub Releases, ce qui contourne le blocage CORS de
  * GitHub (qui ne renvoie pas Access-Control-Allow-Origin sur les release
  * assets).
+ *
+ * Le paramètre `channel` (stable|beta) permet de basculer entre la
+ * release de prod et la pre-release `latest-wifimanager` en cours de test.
  */
-function getFirmwareManifestUrl() {
+function getFirmwareManifestUrl(channel) {
   const base = getBackendUrl() || "";
-  return `${base}/api/firmware/esp8266/manifest.json`;
+  return `${base}/api/firmware/esp8266/manifest.json?channel=${channel}`;
 }
 
-function getFirmwareInfoUrl() {
+function getFirmwareInfoUrl(channel) {
   const base = getBackendUrl() || "";
-  return `${base}/api/firmware/esp8266/info`;
+  return `${base}/api/firmware/esp8266/info?channel=${channel}`;
 }
 
 /**
@@ -60,6 +67,28 @@ export default function Flasher() {
   const [firmwareInfo, setFirmwareInfo] = useState(null);
   const [firmwareLoading, setFirmwareLoading] = useState(true);
   const [firmwareError, setFirmwareError] = useState(null);
+  // Canal firmware sélectionné (persisté en localStorage) :
+  //   - 'stable' : release officielle taguée (par défaut)
+  //   - 'beta'   : pre-release de la branche wifimanager (test)
+  const [channel, setChannel] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY_CHANNEL);
+      return stored === "beta" ? "beta" : "stable";
+    } catch (_) {
+      return "stable";
+    }
+  });
+
+  const handleChannelChange = (newChannel) => {
+    if (newChannel !== channel) {
+      setChannel(newChannel);
+      try {
+        window.localStorage.setItem(STORAGE_KEY_CHANNEL, newChannel);
+      } catch (_) {
+        /* noop */
+      }
+    }
+  };
 
   useEffect(() => {
     setSupported(isSerialSupported());
@@ -72,11 +101,14 @@ export default function Flasher() {
   }, []);
 
   // Récupération des métadonnées du firmware (version courante etc.)
+  // Refetch à chaque changement de canal.
   useEffect(() => {
     let cancelled = false;
+    setFirmwareLoading(true);
+    setFirmwareError(null);
     (async () => {
       try {
-        const resp = await fetch(getFirmwareInfoUrl(), {
+        const resp = await fetch(getFirmwareInfoUrl(channel), {
           headers: { Accept: "application/json" },
         });
         if (!resp.ok) {
@@ -98,7 +130,7 @@ export default function Flasher() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channel]);
 
   return (
     <div className="flex flex-col gap-6" data-testid="flasher-page">
@@ -125,7 +157,11 @@ export default function Flasher() {
             </CardTitle>
             <Badge
               variant="outline"
-              className="font-mono text-[10px] border-[hsl(var(--chart-3))]/40 text-[hsl(var(--chart-3))]"
+              className={
+                channel === "beta"
+                  ? "font-mono text-[10px] border-[hsl(var(--chart-1))]/50 text-[hsl(var(--chart-1))]"
+                  : "font-mono text-[10px] border-[hsl(var(--chart-3))]/40 text-[hsl(var(--chart-3))]"
+              }
               data-testid="firmware-version-badge"
             >
               {firmwareLoading
@@ -134,6 +170,36 @@ export default function Flasher() {
                 ? firmwareInfo.version
                 : "indisponible"}
             </Badge>
+          </div>
+
+          {/* Toggle canal Stable / Beta */}
+          <div className="pt-3" data-testid="firmware-channel-toggle">
+            <Tabs value={channel} onValueChange={handleChannelChange}>
+              <TabsList className="grid w-full sm:w-[420px] grid-cols-2">
+                <TabsTrigger value="stable" data-testid="channel-stable">
+                  <CheckCircle2 className="size-3.5 mr-1.5" />
+                  Stable
+                </TabsTrigger>
+                <TabsTrigger value="beta" data-testid="channel-beta">
+                  <FlaskConical className="size-3.5 mr-1.5" />
+                  Beta (WiFiManager)
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {channel === "beta" && (
+              <div
+                className="mt-2 rounded-md border border-[hsl(var(--chart-1))]/30 bg-[hsl(var(--chart-1))]/5 px-3 py-2 text-xs flex items-start gap-2"
+                data-testid="beta-warning"
+              >
+                <AlertTriangle className="size-3.5 shrink-0 mt-0.5 text-[hsl(var(--chart-1))]" />
+                <span className="text-foreground/80">
+                  <strong className="text-foreground">Version de test.</strong>{" "}
+                  Firmware v2.3.0 avec portail captif WiFiManager + double
+                  reset detection. À utiliser pour valider la nouvelle
+                  procédure avant merge dans la branche stable.
+                </span>
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -165,6 +231,7 @@ export default function Flasher() {
             <BrowserNotSupportedAlert browser={browser} />
           ) : (
             <BrowserSupportedFlashRow
+              channel={channel}
               firmwareInfo={firmwareInfo}
               firmwareLoading={firmwareLoading}
               firmwareError={firmwareError}
@@ -299,9 +366,11 @@ export default function Flasher() {
  * Sous-composants
  * ------------------------------------------------------------------------- */
 
-function BrowserSupportedFlashRow({ firmwareInfo, firmwareLoading, firmwareError }) {
+function BrowserSupportedFlashRow({ channel, firmwareInfo, firmwareLoading, firmwareError }) {
   const ref = useRef(null);
-  const manifestUrl = getFirmwareManifestUrl();
+  // Re-monter le composant ESP Web Tools quand le canal change (le manifest
+  // est lu à la création du custom element, pas à chaque update)
+  const manifestUrl = getFirmwareManifestUrl(channel);
   const sizeKb =
     firmwareInfo?.asset?.size != null
       ? (firmwareInfo.asset.size / 1024).toFixed(1)
@@ -374,6 +443,7 @@ function BrowserSupportedFlashRow({ firmwareInfo, firmwareLoading, firmwareError
 
       <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center pt-2">
         <esp-web-install-button
+          key={channel}
           ref={ref}
           manifest={manifestUrl}
           data-testid="esp-flash-button"
