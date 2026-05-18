@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Cpu,
   Github,
@@ -13,6 +14,7 @@ import {
   Info,
   ExternalLink,
 } from "lucide-react";
+import { getBackendUrl } from "@/lib/sqmApi";
 
 // Web Component <esp-web-install-button> (Nabu Casa / ESPHome).
 // Le simple import enregistre globalement le custom element.
@@ -22,6 +24,22 @@ import "esp-web-tools";
 const FIRMWARE_SOURCE_URL = "https://github.com/TinQuen22Fr/SQM-Pro-ESP8266";
 const RELEASES_URL =
   "https://github.com/TinQuen22Fr/SQM-Pro-ESP8266/releases";
+
+/**
+ * Manifest ESP Web Tools : on passe par le backend FastAPI qui proxifie
+ * le .bin depuis GitHub Releases, ce qui contourne le blocage CORS de
+ * GitHub (qui ne renvoie pas Access-Control-Allow-Origin sur les release
+ * assets).
+ */
+function getFirmwareManifestUrl() {
+  const base = getBackendUrl() || "";
+  return `${base}/api/firmware/esp8266/manifest.json`;
+}
+
+function getFirmwareInfoUrl() {
+  const base = getBackendUrl() || "";
+  return `${base}/api/firmware/esp8266/info`;
+}
 
 /**
  * Détection du support Web Serial API (utilisé par esp-web-tools).
@@ -39,6 +57,9 @@ function isSerialSupported() {
 export default function Flasher() {
   const [supported, setSupported] = useState(true);
   const [browser, setBrowser] = useState("");
+  const [firmwareInfo, setFirmwareInfo] = useState(null);
+  const [firmwareLoading, setFirmwareLoading] = useState(true);
+  const [firmwareError, setFirmwareError] = useState(null);
 
   useEffect(() => {
     setSupported(isSerialSupported());
@@ -48,6 +69,35 @@ export default function Flasher() {
     else if (/Chrome\//.test(ua)) setBrowser("Chrome");
     else if (/Safari\//.test(ua)) setBrowser("Safari");
     else setBrowser("Inconnu");
+  }, []);
+
+  // Récupération des métadonnées du firmware (version courante etc.)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(getFirmwareInfoUrl(), {
+          headers: { Accept: "application/json" },
+        });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (!cancelled) {
+          setFirmwareInfo(data);
+          setFirmwareError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFirmwareError(err.message || "Erreur de récupération");
+        }
+      } finally {
+        if (!cancelled) setFirmwareLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -76,8 +126,13 @@ export default function Flasher() {
             <Badge
               variant="outline"
               className="font-mono text-[10px] border-[hsl(var(--chart-3))]/40 text-[hsl(var(--chart-3))]"
+              data-testid="firmware-version-badge"
             >
-              Stable
+              {firmwareLoading
+                ? "…"
+                : firmwareInfo?.version
+                ? firmwareInfo.version
+                : "indisponible"}
             </Badge>
           </div>
         </CardHeader>
@@ -109,7 +164,11 @@ export default function Flasher() {
           {!supported ? (
             <BrowserNotSupportedAlert browser={browser} />
           ) : (
-            <BrowserSupportedFlashRow />
+            <BrowserSupportedFlashRow
+              firmwareInfo={firmwareInfo}
+              firmwareLoading={firmwareLoading}
+              firmwareError={firmwareError}
+            />
           )}
         </CardContent>
       </Card>
@@ -240,8 +299,14 @@ export default function Flasher() {
  * Sous-composants
  * ------------------------------------------------------------------------- */
 
-function BrowserSupportedFlashRow() {
+function BrowserSupportedFlashRow({ firmwareInfo, firmwareLoading, firmwareError }) {
   const ref = useRef(null);
+  const manifestUrl = getFirmwareManifestUrl();
+  const sizeKb =
+    firmwareInfo?.asset?.size != null
+      ? (firmwareInfo.asset.size / 1024).toFixed(1)
+      : null;
+
   return (
     <div className="space-y-2">
       <div className="rounded-md border border-[hsl(var(--chart-3))]/40 bg-[hsl(var(--chart-3))]/5 px-3 py-2 flex items-start gap-2 text-xs">
@@ -251,10 +316,66 @@ function BrowserSupportedFlashRow() {
         </span>
       </div>
 
+      {/* Détails du firmware proxifié (utile pour debug + transparence) */}
+      <div
+        className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs space-y-1"
+        data-testid="firmware-details"
+      >
+        {firmwareLoading ? (
+          <Skeleton className="h-3.5 w-48" />
+        ) : firmwareError ? (
+          <div className="flex items-start gap-2 text-[hsl(var(--chart-1))]">
+            <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+            <span>
+              Impossible de récupérer les infos du firmware : {firmwareError}.
+              Le bouton ci-dessous restera fonctionnel si le proxy backend
+              répond.
+            </span>
+          </div>
+        ) : firmwareInfo ? (
+          <>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+              <span>
+                Version :{" "}
+                <code className="font-mono text-foreground">
+                  {firmwareInfo.version}
+                </code>
+              </span>
+              {sizeKb && (
+                <span>
+                  Taille : <code className="font-mono">{sizeKb} Ko</code>
+                </span>
+              )}
+              {firmwareInfo.published_at && (
+                <span>
+                  Publié le{" "}
+                  <code className="font-mono">
+                    {new Date(firmwareInfo.published_at).toLocaleDateString(
+                      "fr-FR"
+                    )}
+                  </code>
+                </span>
+              )}
+            </div>
+            {firmwareInfo.html_url && (
+              <a
+                href={firmwareInfo.html_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[hsl(var(--chart-2))] hover:underline inline-flex items-center gap-1"
+              >
+                <ExternalLink className="size-3" />
+                Voir la release sur GitHub
+              </a>
+            )}
+          </>
+        ) : null}
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center pt-2">
         <esp-web-install-button
           ref={ref}
-          manifest="/firmware/manifest-esp8266.json"
+          manifest={manifestUrl}
           data-testid="esp-flash-button"
         >
           <Button
