@@ -166,8 +166,8 @@ export default function Flasher() {
             >
               {firmwareLoading
                 ? "…"
-                : firmwareInfo?.version
-                ? firmwareInfo.version
+                : firmwareInfo?.display_version || firmwareInfo?.version
+                ? firmwareInfo.display_version || firmwareInfo.version
                 : "indisponible"}
             </Badge>
           </div>
@@ -194,9 +194,17 @@ export default function Flasher() {
                 <AlertTriangle className="size-3.5 shrink-0 mt-0.5 text-[hsl(var(--chart-1))]" />
                 <span className="text-foreground/80">
                   <strong className="text-foreground">Version de test.</strong>{" "}
-                  Firmware v2.3.0 avec portail captif WiFiManager + double
-                  reset detection. À utiliser pour valider la nouvelle
-                  procédure avant merge dans la branche stable.
+                  Firmware{" "}
+                  {firmwareInfo?.display_version ? (
+                    <strong className="text-foreground font-mono">
+                      {firmwareInfo.display_version}
+                    </strong>
+                  ) : (
+                    "beta"
+                  )}{" "}
+                  avec portail captif WiFiManager + double reset detection.
+                  À utiliser pour valider la nouvelle procédure avant merge
+                  dans la branche stable.
                 </span>
               </div>
             )}
@@ -407,7 +415,7 @@ function BrowserSupportedFlashRow({ channel, firmwareInfo, firmwareLoading, firm
               <span>
                 Version :{" "}
                 <code className="font-mono text-foreground">
-                  {firmwareInfo.version}
+                  {firmwareInfo.display_version || firmwareInfo.version}
                 </code>
               </span>
               {sizeKb && (
