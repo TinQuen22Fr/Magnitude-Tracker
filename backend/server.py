@@ -549,6 +549,8 @@ async def firmware_info_esp8266(channel: Optional[str] = Query(default='stable')
     Utile pour afficher la version courante dans l'UI Flasher sans avoir à
     appeler l'API GitHub depuis le navigateur (qui poserait du CORS).
     """
+    import re
+
     ch = _resolve_channel(channel)
     release = await _fetch_release(ch)
     try:
@@ -560,10 +562,31 @@ async def firmware_info_esp8266(channel: Optional[str] = Query(default='stable')
         }
     except HTTPException:
         asset_info = None
+
+    tag_name = release.get('tag_name') or ''
+    release_name = release.get('name') or ''
+
+    # Extraction de la "vraie" version vX.Y.Z :
+    # - Si le tag suit le format sémantique (vX.Y.Z) → utilise directement
+    # - Sinon (tag mobile type "latest-wifimanager") → cherche dans le nom
+    #   de la release ("Beta v2.3.1 — WiFiManager portail captif")
+    # - Sinon fallback sur le tag_name brut
+    semver_re = re.compile(r'v?(\d+\.\d+\.\d+(?:[-+][\w.]+)?)')
+    m = semver_re.search(tag_name)
+    if m:
+        display_version = f'v{m.group(1)}'
+    else:
+        m = semver_re.search(release_name)
+        if m:
+            display_version = f'v{m.group(1)}'
+        else:
+            display_version = tag_name or 'latest'
+
     return {
         'channel': ch,
         'channel_label': FIRMWARE_CHANNELS[ch]['label'],
-        'version': release.get('tag_name'),
+        'version': release.get('tag_name'),          # brut, pour debug
+        'display_version': display_version,          # à afficher dans l'UI
         'name': release.get('name'),
         'published_at': release.get('published_at'),
         'prerelease': release.get('prerelease', False),
