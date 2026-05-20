@@ -88,13 +88,32 @@ def decrypt_secret(token: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Hash mot de passe
 # ---------------------------------------------------------------------------
+# bcrypt impose une limite stricte de 72 bytes sur le mot de passe (limitation
+# historique de l'algorithme). passlib le tronquait silencieusement, mais
+# bcrypt 4.x lève désormais une `ValueError` explicite. On reproduit le
+# comportement historique : on tronque proprement à 72 bytes UTF-8 côté hash
+# ET côté vérification (pour rester cohérent). C'est une convention courante
+# (Django, FastAPI-Users, etc.).
+BCRYPT_MAX_BYTES = 72
+
+
+def _truncate_for_bcrypt(plain: str) -> str:
+    """Tronque proprement une chaîne à 72 bytes UTF-8 sans casser les
+    caractères multi-bytes (accents, emojis…). Si tout le mdp tient déjà
+    dans la limite, renvoie la chaîne telle quelle."""
+    raw = plain.encode("utf-8")
+    if len(raw) <= BCRYPT_MAX_BYTES:
+        return plain
+    return raw[:BCRYPT_MAX_BYTES].decode("utf-8", errors="ignore")
+
+
 def hash_password(plain: str) -> str:
-    return PWD_CONTEXT.hash(plain)
+    return PWD_CONTEXT.hash(_truncate_for_bcrypt(plain))
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return PWD_CONTEXT.verify(plain, hashed)
+        return PWD_CONTEXT.verify(_truncate_for_bcrypt(plain), hashed)
     except Exception:
         return False
 
