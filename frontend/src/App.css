@@ -1,6 +1,9 @@
 /* SQM Nightwatch — minimal global styles. Tailwind handles the rest. */
 .App {
     min-height: 100vh;
-    background: hsl(var(--background));
+    /* On laisse transparent pour que l'image stellaire du <body> remonte
+     * jusqu'au contenu. La couleur de fond est déjà gérée sur <body>
+     * (avec fallback hsl(--background)) dans index.css. */
+    background: transparent;
     color: hsl(var(--foreground));
 }

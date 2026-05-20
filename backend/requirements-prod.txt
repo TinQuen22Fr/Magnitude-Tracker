@@ -8,4 +8,12 @@ fastapi==0.110.1
 uvicorn[standard]==0.25.0
 python-dotenv>=1.0.1
 pydantic>=2.6.4
+email-validator>=2.2.0  # requis par Pydantic EmailStr (Phase 5 auth)
 httpx>=0.27.0      # proxy backend → GitHub Releases (firmware ESP8266)
+aiosqlite>=0.20.0  # SQLite async pour le stockage des mesures (Phase 4)
+# Phase 5 — auth + 2FA TOTP
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.1.0
+pyotp>=2.9.0
+qrcode[pil]>=8.0
+cryptography>=44.0.0

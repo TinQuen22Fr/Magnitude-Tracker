@@ -42,6 +42,9 @@ deploy/.env.local
 # --- Données live (générées au runtime, ne pas versionner) ---
 backend/sqm_history.json
 backend/sqm_history.json.bak
+backend/sqm.db
+backend/sqm.db-wal
+backend/sqm.db-shm
 backend/*.log
 
 # --- Logs ---

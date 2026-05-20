@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ReceptionStatus from "@/components/ReceptionStatus";
+import AuthMenu from "@/components/AuthMenu";
 import { useNightMode } from "@/lib/nightMode";
 import { APP_VERSION } from "@/lib/version";
 
@@ -21,7 +22,7 @@ export default function AppShell({ children }) {
   const { isNight, toggleManual } = useNightMode();
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen text-foreground">
       <header
         className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70"
         data-testid="app-header"
@@ -102,6 +103,8 @@ export default function AppShell({ children }) {
                 </span>
               </Button>
             </Link>
+
+            <AuthMenu />
           </div>
         </div>
       </header>

@@ -11,6 +11,7 @@ import PeriodSelector, {
 } from "@/components/PeriodSelector";
 import { Button } from "@/components/ui/button";
 import { Download, RefreshCw } from "lucide-react";
+import AdminCleanupDialog from "@/components/AdminCleanupDialog";
 import {
   fetchHistory,
   fetchLatest,
@@ -124,6 +125,7 @@ export default function Dashboard() {
           >
             <Download className="size-3.5 mr-1.5" /> CSV
           </Button>
+          <AdminCleanupDialog onAfterDelete={() => load(true)} />
         </div>
       </div>
 

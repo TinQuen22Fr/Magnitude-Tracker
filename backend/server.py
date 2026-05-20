@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Header, HTTPException, Response, Query
+from fastapi import FastAPI, APIRouter, Header, HTTPException, Response, Query, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -15,6 +15,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime, timezone
+
+# Phase 5 — auth & sessions
+import auth
+import auth_routes
 
 
 # ---------------------------------------------------------------------------
@@ -91,36 +95,79 @@ class Measurement(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Storage helpers (lock-protected)
+# Storage helpers — SQLite via db.py (Phase 4)
 # ---------------------------------------------------------------------------
-async def _read_all_unlocked() -> list:
-    try:
-        content = HISTORY_FILE.read_text()
-        if not content.strip():
-            return []
-        data = json.loads(content)
-        if not isinstance(data, list):
-            return []
-        return data
-    except (json.JSONDecodeError, FileNotFoundError):
-        return []
+# Le module db.py gère le fichier sqm.db. Le code historique JSON est conservé
+# pour le fallback de lecture (et migration au startup), mais toutes les
+# écritures vont désormais dans SQLite.
+import db  # noqa: E402
+
+
+def _row_to_legacy_dict(r: dict) -> dict:
+    """Adapte une ligne SQLite vers le format attendu par les clients
+    (frontend Recharts, exports CSV, ancien firmware). Conserve la rétro-
+    compatibilité des clés `mag`, `lux`, `temp`, `gps`, etc.
+    """
+    gps = None
+    if r.get('gps_alt') is not None or r.get('gps_lat') is not None or r.get('gps_lon') is not None:
+        gps = {
+            'alt': r.get('gps_alt'),
+            'lat': r.get('gps_lat'),
+            'lon': r.get('gps_lon'),
+        }
+    return {
+        'ts': r.get('ts'),
+        'mag': r.get('mag') if r.get('mag') is not None else 0.0,
+        'lux': r.get('lux') if r.get('lux') is not None else 0.0,
+        'temp': r.get('temp') if r.get('temp') is not None else 0.0,
+        'humidity': r.get('humidity'),
+        'pressure': r.get('pressure'),
+        'battery': r.get('battery'),
+        'battery_pct': r.get('battery_pct'),
+        'error': r.get('dmag'),
+        'gps': gps,
+        'device_id': r.get('device_id'),
+    }
 
 
 async def read_all() -> list:
-    async with file_lock:
-        return await _read_all_unlocked()
+    """Lit TOUT l'historique depuis SQLite, format ascendant (chronologique).
+
+    NB : la limite à 100 000 protège la RAM si la DB explose. Au-dessus,
+    l'API préfèrera /api/sqm/history avec since= ou device_id=.
+    """
+    rows = await db.get_history(limit=100000, order='asc')
+    return [_row_to_legacy_dict(r) for r in rows]
 
 
 async def append_record(record: dict) -> int:
-    """Append a record to the JSON history with atomic write under lock."""
-    async with file_lock:
-        data = await _read_all_unlocked()
-        data.append(record)
-        tmp_path = HISTORY_FILE.with_suffix('.json.tmp')
-        # Atomic write: write to tmp, then rename
-        tmp_path.write_text(json.dumps(data, ensure_ascii=False))
-        os.replace(tmp_path, HISTORY_FILE)
-        return len(data)
+    """Insère une mesure dans SQLite et retourne le total cumulé.
+
+    `record` est le dict construit par /api/sqm_push, il contient au moins
+    `ts` (UTC ISO) et `mag`. `device_id` est utilisé pour la table devices ;
+    si absent on retombe sur "SQM-001" (compatibilité historique).
+    """
+    ts = record.get('ts') or datetime.now(timezone.utc).isoformat()
+    device_id = record.get('device_id') or 'SQM-001'
+    # Normalisation : on injecte tous les champs connus dans le payload pour
+    # que db.insert_measurement les extraie via les alias.
+    payload = {
+        'mag': record.get('mag'),
+        'lux': record.get('lux'),
+        'temp': record.get('temp'),
+        'hum': record.get('humidity'),
+        'pres': record.get('pressure'),
+        'batt': record.get('battery'),
+        'batt_pct': record.get('battery_pct'),
+        'dmag': record.get('error'),
+    }
+    gps = record.get('gps') or {}
+    if isinstance(gps, dict):
+        payload['alt'] = gps.get('alt')
+        payload['lat'] = gps.get('lat')
+        payload['lon'] = gps.get('lon')
+    await db.insert_measurement(payload, device_id=device_id, ts=ts)
+    return await db.count_measurements()
 
 
 def _filter_by_since(data: list, since_iso: Optional[str]) -> list:
@@ -174,6 +221,10 @@ async def sqm_push(
     payload: Measurement,
     x_api_key: Optional[str] = Header(default=None, alias='X-API-Key'),
 ):
+    # ⚠️ NE JAMAIS exiger de cookie/session/TOTP ici. Cet endpoint est
+    # consommé par le firmware ESP8266 qui n'envoie QUE le header X-API-Key
+    # (clé injectée à la compilation via le secret GitHub `SENSOR_KEY`).
+    # Toute modification de la garde casserait silencieusement les sondes.
     if not x_api_key or x_api_key != SQM_API_KEY:
         raise HTTPException(status_code=401, detail='Invalid or missing X-API-Key')
     record = {
@@ -213,6 +264,11 @@ async def sqm_push_get(
       - Alt/Lat/Lon : coordonnees GPS
       - ID  : identifiant unique du capteur
       - KEY : cle API (= X-API-Key)
+
+    ⚠️ NE JAMAIS exiger de cookie/session/TOTP ici. Cet endpoint est consommé
+    par le firmware ESP8266 (GET en clair via WiFi du capteur) qui n'envoie
+    QUE le query param `KEY`. Toute modification de la garde casserait
+    silencieusement les sondes (SQM-Quentin et futures sondes communautaires).
     """
     if not KEY or KEY != SQM_API_KEY:
         raise HTTPException(status_code=401, detail='Invalid or missing KEY')
@@ -608,7 +664,142 @@ async def firmware_channels_esp8266():
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — Admin endpoints (suppression de mesures par plage)
+# ---------------------------------------------------------------------------
+# Authentification provisoire : on protège via la SQM_API_KEY pour la
+# Phase 4. Quand la Phase 5 (auth utilisateurs) sera en place, ces routes
+# seront migrées vers une vérification du rôle admin via JWT.
+
+class DeleteRangeRequest(BaseModel):
+    """Plage de timestamps ISO (UTC) à supprimer, optionnellement filtrée
+    par device_id. Les bornes sont INCLUSES.
+    """
+    model_config = ConfigDict(extra='ignore')
+    start_ts: str = Field(..., description='Borne basse incluse (ISO UTC, ex 2026-05-19T22:00:00Z)')
+    end_ts: str = Field(..., description='Borne haute incluse (ISO UTC)')
+    device_id: Optional[str] = Field(default=None, description='Filtre sonde (None = toutes)')
+
+
+def _require_admin(x_api_key: Optional[str]):
+    """[DEPRECATED Phase 5] Garde héritée. Conservée pour compat éventuelle ;
+    les routes admin utilisent désormais `auth.require_admin_or_api_key`."""
+    if not x_api_key or x_api_key != SQM_API_KEY:
+        raise HTTPException(status_code=401, detail='Invalid or missing X-API-Key')
+
+
+def _validate_iso_ts(ts: str, field: str) -> str:
+    """Normalise un timestamp ISO côté serveur (accepte Z suffix)."""
+    try:
+        s = ts.replace('Z', '+00:00')
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=422,
+            detail=f'Invalid ISO timestamp for {field}: {exc}',
+        )
+
+
+@api_router.get('/admin/measurements/preview_delete_range')
+async def admin_preview_delete_range(
+    start_ts: str = Query(..., description='Borne basse ISO UTC'),
+    end_ts: str = Query(..., description='Borne haute ISO UTC'),
+    device_id: Optional[str] = Query(default=None),
+    _admin: dict = Depends(auth.require_admin_or_api_key),
+):
+    """Renvoie le nombre de mesures qui seraient supprimées + un échantillon
+    (jusqu'à 5 lignes au bord de la plage) pour validation avant action.
+
+    Auth : session admin (cookie) OU X-API-Key (rétrocompatibilité scripts/CI).
+    """
+    start = _validate_iso_ts(start_ts, 'start_ts')
+    end = _validate_iso_ts(end_ts, 'end_ts')
+    if start > end:
+        raise HTTPException(status_code=422, detail='start_ts > end_ts')
+
+    count = await db.count_measurements(
+        device_id=device_id, start_ts=start, end_ts=end
+    )
+    # Échantillon (5 lignes au début, 5 à la fin pour visualiser)
+    sample_first = await db.get_history(
+        device_id=device_id, limit=5, order='asc',
+    )
+    sample_last = await db.get_history(
+        device_id=device_id, limit=5, order='desc',
+    )
+    return {
+        'matched': count,
+        'start_ts': start,
+        'end_ts': end,
+        'device_id': device_id,
+        'sample_first': [_row_to_legacy_dict(r) for r in sample_first],
+        'sample_last': [_row_to_legacy_dict(r) for r in sample_last],
+    }
+
+
+@api_router.post('/admin/measurements/delete_range')
+async def admin_delete_range(
+    body: DeleteRangeRequest,
+    _admin: dict = Depends(auth.require_admin_or_api_key),
+):
+    """Supprime les mesures dans la plage [start_ts, end_ts] (incluses),
+    optionnellement filtrées par device_id.
+
+    Auth : session admin (cookie) OU X-API-Key (rétrocompatibilité scripts/CI).
+    Renvoie le nombre exact de lignes effacées + les stats post-suppression.
+    """
+    start = _validate_iso_ts(body.start_ts, 'start_ts')
+    end = _validate_iso_ts(body.end_ts, 'end_ts')
+    if start > end:
+        raise HTTPException(status_code=422, detail='start_ts > end_ts')
+
+    deleted = await db.delete_measurements_range(
+        start_ts=start, end_ts=end, device_id=body.device_id,
+    )
+    stats = await db.get_stats()
+    logger.info(
+        f'Admin delete_range: device={body.device_id or "*"} '
+        f'{start} → {end}: {deleted} measurements deleted.'
+    )
+    return {
+        'status': 'ok',
+        'deleted': deleted,
+        'start_ts': start,
+        'end_ts': end,
+        'device_id': body.device_id,
+        'stats': stats,
+    }
+
+
+@api_router.get('/devices')
+async def list_devices_endpoint():
+    """Liste publique des sondes connues (pour les dropdowns UI).
+
+    Renvoie pour chaque sonde : ID, nom d'affichage, première/dernière
+    mesure, compteur. Sans données sensibles (pas d'IP, pas de propriétaire
+    tant que la Phase 5 n'a pas associé les sondes à des comptes).
+    """
+    devices = await db.list_devices()
+    # On masque pour l'instant owner_user_id (Phase 5 nécessaire) et notes
+    public = [
+        {
+            'device_id': d['device_id'],
+            'display_name': d.get('display_name'),
+            'first_seen': d.get('first_seen'),
+            'last_seen': d.get('last_seen'),
+            'total_measurements': d.get('total_measurements'),
+            'is_public': bool(d.get('is_public', 1)),
+        }
+        for d in devices
+    ]
+    return {'devices': public, 'count': len(public)}
+
+
 # Include the router in the main app
+api_router.include_router(auth_routes.router)
 app.include_router(api_router)
 
 app.add_middleware(
@@ -635,7 +826,38 @@ logger = logging.getLogger(__name__)
 async def _on_startup():
     logger.info('=' * 70)
     logger.info('SQM Nightwatch backend started')
-    logger.info(f'History file : {HISTORY_FILE}')
-    logger.info(f'X-API-Key    : {SQM_API_KEY}')
-    logger.info("POST endpoint: /api/sqm_push  (Header: X-API-Key)")
+
+    # Phase 4 : initialisation SQLite + migration JSON → DB si nécessaire
+    try:
+        await db.init_db()
+        logger.info(f'SQLite DB   : {db.DB_PATH}')
+        migrated = await db.migrate_legacy_json()
+        if migrated > 0:
+            logger.info(
+                f'Migration   : {migrated} mesures importées depuis '
+                f'{db.LEGACY_JSON_PATH.name} (renommé en .bak)'
+            )
+        stats = await db.get_stats()
+        logger.info(
+            f'Stats DB    : {stats["total_measurements"]} mesures, '
+            f'{stats["total_devices"]} sondes'
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f'!! Erreur init/migration SQLite : {exc}')
+
+    # Phase 5 : seed du compte admin si la table users est vide
+    try:
+        seeded = await auth.seed_admin_if_needed()
+        if seeded:
+            logger.info(
+                f'Admin seed : compte initial créé ({seeded["email"]}). '
+                f'Changement du mot de passe requis à la 1ère connexion.'
+            )
+        total_users = await db.count_users()
+        logger.info(f'Users DB    : {total_users} utilisateur(s) en base')
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f'!! Erreur seed admin : {exc}')
+
+    logger.info(f'X-API-Key   : {SQM_API_KEY}')
+    logger.info('POST endpoint: /api/sqm_push  (Header: X-API-Key)')
     logger.info('=' * 70)

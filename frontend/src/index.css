@@ -10,8 +10,11 @@ html,
 body,
 #root {
     min-height: 100%;
-    background: hsl(222 47% 6%);
 }
+
+/* Note : on évite de poser un `background` sur html/#root pour ne pas
+ * masquer l'image stellaire appliquée sur <body>. Le fallback couleur
+ * vit uniquement sur <body> (cf. plus bas). */
 
 body {
     margin: 0;
@@ -21,6 +24,34 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     color: hsl(210 20% 96%);
+
+    /* === Fond d'écran stellaire global (Phase 5.5) ===
+     * Image WebP 2560×1441 importée depuis src/assets/night-sky.webp via
+     * webpack, puis injectée comme variable CSS `--app-bg-image` au
+     * runtime par src/index.js (la voie canonique CRA — évite les
+     * problèmes de résolution d'URL absolue par css-loader).
+     * - `background-color` fait office de fallback couleur unie pendant le
+     *   chargement réseau (zéro flash blanc).
+     * - `background-attachment: fixed` donne un effet "ciel immobile"
+     *   pendant le scroll sur desktop. Désactivé sur mobile (cf. media query
+     *   plus bas) car iOS Safari l'ignore et Android peut le rendre saccadé.
+     * - L'image est désactivée en mode nuit astronomique (vision scotopique).
+     */
+    background-color: hsl(222 47% 6%);
+    background-image: var(--app-bg-image, none);
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
+/* Mobile / tablette portrait : on désactive le parallaxe fixed
+   (cause des saccades sur iOS, et le contenu est plus dense). */
+@media (max-width: 1024px) {
+    body {
+        background-attachment: scroll;
+        background-position: center center;
+    }
 }
 
 .font-mono,
@@ -145,31 +176,43 @@ code {
     }
 }
 
-/* Subtle starfield-like noise overlay (very low opacity) */
+/* === Overlay global d'assombrissement ===
+ * Posé entre l'image de fond et le contenu pour garantir la lisibilité.
+ * Gradient vertical : plus clair en haut (laisse respirer la Voie lactée
+ * et la lune) → plus sombre vers le bas (zone des graphes/cards).
+ * Plus un soupçon d'accent rouge en haut-droite pour rappeler le mode
+ * nuit astronomique sans agresser.
+ */
 body::before {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background-image: radial-gradient(
-            1100px circle at 18% -10%,
-            rgba(58, 130, 255, 0.08),
-            transparent 55%
-        ),
+    background:
         radial-gradient(
             900px circle at 92% 0%,
-            rgba(255, 59, 92, 0.05),
-            transparent 50%
+            rgba(255, 59, 92, 0.06),
+            transparent 55%
+        ),
+        linear-gradient(
+            180deg,
+            rgba(7, 11, 22, 0.45) 0%,
+            rgba(7, 11, 22, 0.62) 45%,
+            rgba(7, 11, 22, 0.82) 100%
         );
 }
 
-/* Mode Nuit : remplace le gradient bleu/rose par un gradient rouge profond */
+/* Mode Nuit Astronomique : on RETIRE l'image stellaire (préservation
+ * vision scotopique — toute luminance > rouge pur dégrade l'adaptation
+ * à l'obscurité). On retombe sur un noir pur + halo rouge subtil. */
 html.night-mode body {
-    background: #000000;
+    background-image: none;
+    background-color: #000000;
 }
 html.night-mode body::before {
-    background-image: radial-gradient(
+    background:
+        radial-gradient(
             1100px circle at 18% -10%,
             rgba(255, 30, 30, 0.08),
             transparent 55%
@@ -184,6 +227,17 @@ html.night-mode body::before {
 #root {
     position: relative;
     z-index: 1;
+}
+
+/* Mode Nuit : les Cards reviennent en opacité pleine + désactive le
+   backdrop-blur (l'image est masquée et la transparence affaiblirait le
+   rouge pur recherché pour la vision scotopique). */
+html.night-mode .bg-card\/80,
+html.night-mode .supports-\[backdrop-filter\]\:bg-card\/65,
+html.night-mode [class*="bg-card/"] {
+    background-color: hsl(var(--card)) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 /* Recharts tooltip dark style fallback */

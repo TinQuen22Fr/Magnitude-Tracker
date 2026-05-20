@@ -45,6 +45,14 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+        <!--
+          Le fond d'écran stellaire (~243 Ko, WebP 2560×1441) est importé
+          depuis src/assets/night-sky.webp et injecté comme variable CSS
+          au mount React (cf. src/index.js). Webpack gère le content-hash
+          et le code-splitting en production.
+        -->
+
         <title>SQM Nightwatch — Capteur SQM-LE DIY</title>
     </head>
     <body>
