@@ -26,9 +26,9 @@ from typing import Optional
 
 import pyotp
 import qrcode
+import bcrypt
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Cookie, Depends, HTTPException, Request, status
-from passlib.context import CryptContext
 
 import db
 
@@ -45,7 +45,11 @@ TOTP_ISSUER = 'SQM Nightwatch'
 RATE_LIMIT_MAX_FAILURES = 5           # max d'échecs / fenêtre
 RATE_LIMIT_WINDOW_MIN = 15
 
-PWD_CONTEXT = CryptContext(schemes=['bcrypt'], deprecated='auto')
+# NB : on utilise désormais directement la lib `bcrypt` (recommandation
+# officielle 2024+). Passlib a un bug connu avec bcrypt >= 4.0
+# (`detect_wrap_bug` plante au premier hash) et n'est plus maintenu
+# depuis 2020. La lib `bcrypt` est plus simple, plus rapide et n'a aucun
+# bug de ce genre.
 
 # ---------------------------------------------------------------------------
 # Fernet : chiffre les secrets TOTP au repos
@@ -86,34 +90,36 @@ def decrypt_secret(token: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Hash mot de passe
+# Hash mot de passe (bcrypt direct, sans passlib)
 # ---------------------------------------------------------------------------
 # bcrypt impose une limite stricte de 72 bytes sur le mot de passe (limitation
-# historique de l'algorithme). passlib le tronquait silencieusement, mais
-# bcrypt 4.x lève désormais une `ValueError` explicite. On reproduit le
-# comportement historique : on tronque proprement à 72 bytes UTF-8 côté hash
-# ET côté vérification (pour rester cohérent). C'est une convention courante
-# (Django, FastAPI-Users, etc.).
+# historique de l'algorithme). On tronque proprement à 72 bytes UTF-8 côté
+# hash ET côté vérification (pour rester cohérent), sans casser les caractères
+# multi-bytes (accents, emojis…). Convention courante (Django, fastapi-users).
 BCRYPT_MAX_BYTES = 72
 
 
-def _truncate_for_bcrypt(plain: str) -> str:
-    """Tronque proprement une chaîne à 72 bytes UTF-8 sans casser les
-    caractères multi-bytes (accents, emojis…). Si tout le mdp tient déjà
-    dans la limite, renvoie la chaîne telle quelle."""
+def _bcrypt_payload(plain: str) -> bytes:
+    """Renvoie le mot de passe encodé UTF-8 et tronqué à 72 bytes.
+    Gère proprement les caractères multi-bytes (ne coupe pas un accent en deux).
+    """
     raw = plain.encode("utf-8")
     if len(raw) <= BCRYPT_MAX_BYTES:
-        return plain
-    return raw[:BCRYPT_MAX_BYTES].decode("utf-8", errors="ignore")
+        return raw
+    # On tronque, puis on re-decode/re-encode pour éliminer les bytes orphelins
+    return raw[:BCRYPT_MAX_BYTES].decode("utf-8", errors="ignore").encode("utf-8")
 
 
 def hash_password(plain: str) -> str:
-    return PWD_CONTEXT.hash(_truncate_for_bcrypt(plain))
+    """Génère un hash bcrypt (cost=12 par défaut)."""
+    return bcrypt.hashpw(_bcrypt_payload(plain), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return PWD_CONTEXT.verify(_truncate_for_bcrypt(plain), hashed)
+        if not hashed:
+            return False
+        return bcrypt.checkpw(_bcrypt_payload(plain), hashed.encode("utf-8"))
     except Exception:
         return False
 
