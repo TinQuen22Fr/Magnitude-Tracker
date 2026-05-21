@@ -6,6 +6,8 @@ import Settings from "@/pages/Settings";
 import Flasher from "@/pages/Flasher";
 import Login from "@/pages/Login";
 import Account from "@/pages/Account";
+import RequestAccess from "@/pages/RequestAccess";
+import SetupAccount from "@/pages/SetupAccount";
 import AppShell from "@/components/AppShell";
 import RequireAuth from "@/components/RequireAuth";
 import { Toaster } from "@/components/ui/sonner";
@@ -25,6 +27,8 @@ function App() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/flasher" element={<Flasher />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/request-access" element={<RequestAccess />} />
+                <Route path="/setup-account" element={<SetupAccount />} />
                 <Route
                   path="/account"
                   element={

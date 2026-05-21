@@ -225,13 +225,25 @@ export default function Login() {
         )}
       </Card>
 
-      <div className="mt-6 text-center text-xs text-muted-foreground">
-        <Link
-          to="/"
-          className="hover:text-foreground underline-offset-4 hover:underline"
-        >
-          Retour aux données publiques
-        </Link>
+      <div className="mt-6 text-center text-xs text-muted-foreground space-y-2">
+        <div>
+          Pas encore de compte&nbsp;?{" "}
+          <Link
+            to="/request-access"
+            className="hover:text-foreground underline-offset-4 hover:underline"
+            data-testid="login-request-access-link"
+          >
+            Demander un accès
+          </Link>
+        </div>
+        <div>
+          <Link
+            to="/"
+            className="hover:text-foreground underline-offset-4 hover:underline"
+          >
+            Retour aux données publiques
+          </Link>
+        </div>
       </div>
     </div>
   );

@@ -23,8 +23,11 @@ import {
   pingRoot,
 } from "@/lib/sqmApi";
 import { useNightMode } from "@/lib/nightMode";
+import { useAuth } from "@/lib/authContext";
+import InvitationManager from "@/components/InvitationManager";
 
 export default function Settings() {
+  const { user } = useAuth();
   const [currentUrl, setCurrentUrl] = useState("");
   const [inputUrl, setInputUrl] = useState("");
   const [defaultUrl, setDefaultUrl] = useState("");
@@ -263,6 +266,9 @@ export default function Settings() {
           <NightModeAutoRow />
         </CardContent>
       </Card>
+
+      {/* Phase 6 — Gestion des demandes d'invitation (admin uniquement) */}
+      {user?.is_admin && <InvitationManager />}
 
       <Card className="border-border/70 bg-card/80">
         <CardHeader className="pb-3">

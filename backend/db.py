@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -154,11 +154,16 @@ CREATE TABLE IF NOT EXISTS invitations (
     reviewed_at             TIMESTAMP,
     reviewer_notes          TEXT,
     user_id                 INTEGER,
+    ip_address              TEXT,
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_invitations_status ON invitations(status);
+CREATE INDEX IF NOT EXISTS idx_invitations_email  ON invitations(email);
+CREATE INDEX IF NOT EXISTS idx_invitations_token  ON invitations(invitation_token);
+-- NB : l'index sur ip_address est cr\u00e9\u00e9 dans _ensure_user_columns APR\u00c8S
+-- l'ALTER TABLE qui ajoute la colonne (migration des DB existantes).
 """
 
 
@@ -202,6 +207,24 @@ async def _ensure_user_columns(db: aiosqlite.Connection) -> None:
         if col not in existing:
             await db.execute(f'ALTER TABLE users ADD COLUMN {col} {definition}')
             logger.info(f"users: added column '{col}'")
+
+    # Colonne `ip_address` sur invitations (ajout\u00e9e en Phase 6 pour le
+    # rate-limiting par IP). Idempotent.
+    try:
+        async with db.execute('PRAGMA table_info(invitations)') as cur:
+            inv_cols = {row[1] for row in await cur.fetchall()}
+        if inv_cols and 'ip_address' not in inv_cols:
+            await db.execute(
+                'ALTER TABLE invitations ADD COLUMN ip_address TEXT'
+            )
+            logger.info("invitations: added column 'ip_address'")
+        # Index sur ip_address (cr\u00e9\u00e9 APR\u00c8S l'ALTER pour les DB existantes)
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_invitations_ip_created '
+            'ON invitations(ip_address, created_at)'
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f'Could not migrate invitations.ip_address: {exc}')
 
 
 async def migrate_legacy_json(json_path: Path = LEGACY_JSON_PATH) -> int:
@@ -851,3 +874,187 @@ async def count_recent_failed_attempts(
         async with db.execute(sql, tuple(params)) as cur:
             row = await cur.fetchone()
     return row[0] if row else 0
+
+
+
+# ===========================================================================
+# Phase 6 — Invitations
+# ===========================================================================
+INVITATION_COLS = (
+    'id', 'email', 'display_name', 'motivation', 'status',
+    'invitation_token', 'token_expires_at',
+    'reviewed_by_user_id', 'reviewed_at', 'reviewer_notes',
+    'user_id', 'ip_address', 'created_at',
+)
+
+
+async def create_invitation_request(
+    *,
+    email: str,
+    display_name: Optional[str] = None,
+    motivation: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> int:
+    """Crée une demande d'invitation (status='pending'). Renvoie l'id."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO invitations
+                (email, display_name, motivation, status, ip_address)
+            VALUES (?, ?, ?, 'pending', ?)
+            """,
+            (
+                email.strip().lower(),
+                display_name,
+                motivation,
+                ip_address,
+            ),
+        )
+        await db.commit()
+        return cur.lastrowid or 0
+
+
+async def get_invitation_by_id(inv_id: int) -> Optional[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            'SELECT * FROM invitations WHERE id = ?', (int(inv_id),),
+        ) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def get_invitation_by_email(
+    email: str, status_filter: Optional[str] = None,
+) -> Optional[dict]:
+    """Renvoie la dernière invitation pour cet email (filtrable par status)."""
+    sql = 'SELECT * FROM invitations WHERE LOWER(email) = LOWER(?) '
+    params: list = [email.strip()]
+    if status_filter:
+        sql += 'AND status = ? '
+        params.append(status_filter)
+    sql += 'ORDER BY created_at DESC LIMIT 1'
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(sql, tuple(params)) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def get_invitation_by_token(token: str) -> Optional[dict]:
+    if not token:
+        return None
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            'SELECT * FROM invitations WHERE invitation_token = ? LIMIT 1',
+            (token,),
+        ) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def list_invitations(
+    status_filter: Optional[str] = None,
+) -> list[dict]:
+    sql = 'SELECT * FROM invitations '
+    params: tuple = ()
+    if status_filter:
+        sql += 'WHERE status = ? '
+        params = (status_filter,)
+    sql += 'ORDER BY created_at DESC LIMIT 500'
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def update_invitation_status(
+    *,
+    inv_id: int,
+    status: str,
+    invitation_token: Optional[str] = None,
+    token_expires_at: Optional[str] = None,
+    reviewed_by_user_id: Optional[int] = None,
+    reviewer_notes: Optional[str] = None,
+) -> None:
+    """Met à jour le status (et le token si accepté). reviewed_at = now()."""
+    sets = ['status = ?', 'reviewed_at = ?']
+    params: list = [status, datetime.now(timezone.utc).isoformat()]
+    if invitation_token is not None:
+        sets.append('invitation_token = ?')
+        params.append(invitation_token)
+    if token_expires_at is not None:
+        sets.append('token_expires_at = ?')
+        params.append(token_expires_at)
+    if reviewed_by_user_id is not None:
+        sets.append('reviewed_by_user_id = ?')
+        params.append(int(reviewed_by_user_id))
+    if reviewer_notes is not None:
+        sets.append('reviewer_notes = ?')
+        params.append(reviewer_notes)
+    params.append(int(inv_id))
+    sql = f'UPDATE invitations SET {", ".join(sets)} WHERE id = ?'
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(sql, tuple(params))
+        await db.commit()
+
+
+async def mark_invitation_activated(inv_id: int, user_id: int) -> None:
+    """Finalise une invitation : status='activated', token consommé, lie user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE invitations
+            SET status = 'activated',
+                user_id = ?,
+                invitation_token = NULL
+            WHERE id = ?
+            """,
+            (int(user_id), int(inv_id)),
+        )
+        await db.commit()
+
+
+async def delete_invitation(inv_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            'DELETE FROM invitations WHERE id = ?', (int(inv_id),),
+        )
+        await db.commit()
+
+
+async def count_recent_invitation_requests(
+    ip: Optional[str], window_minutes: int = 60,
+) -> int:
+    """Anti-spam : combien de demandes la même IP a-t-elle envoyé récemment ?
+
+    Si ip est None, on ne peut pas faire de rate-limit fiable → renvoie 0.
+    """
+    if not ip:
+        return 0
+    # NB: created_at est stock\u00e9 via CURRENT_TIMESTAMP SQLite au format
+    # 'YYYY-MM-DD HH:MM:SS' (espace, sans timezone). On formatte le cutoff
+    # dans le m\u00eame format pour que la comparaison string soit chronologique.
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    cutoff_sql = cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            'SELECT COUNT(*) FROM invitations '
+            'WHERE ip_address = ? AND created_at >= ?',
+            (ip, cutoff_sql),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else 0
+
+
+async def list_admin_emails() -> list[str]:
+    """Renvoie la liste des emails des comptes is_admin=1 actifs."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            'SELECT email FROM users WHERE is_admin = 1 AND is_active = 1'
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r['email'] for r in rows if r['email']]

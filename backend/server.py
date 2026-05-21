@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 # Phase 5 — auth & sessions
 import auth
 import auth_routes
+# Phase 6 — invitations + emailing
+import invitation_routes
 
 
 # ---------------------------------------------------------------------------
@@ -800,6 +802,7 @@ async def list_devices_endpoint():
 
 # Include the router in the main app
 api_router.include_router(auth_routes.router)
+api_router.include_router(invitation_routes.router)
 app.include_router(api_router)
 
 app.add_middleware(
