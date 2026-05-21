@@ -25,9 +25,20 @@ export default function RequestAccess() {
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  // Minimum requis c\u00f4t\u00e9 backend (validator strip 50 chars).
+  const MOTIVATION_MIN = 50;
+  const motivationTrimmedLen = motivation.trim().length;
+  const motivationOk = motivationTrimmedLen >= MOTIVATION_MIN;
+
   async function onSubmit(e) {
     e.preventDefault();
     if (busy) return;
+    if (!motivationOk) {
+      toast.error(
+        `Merci de d\u00e9tailler votre motivation (${motivationTrimmedLen}/${MOTIVATION_MIN} caract\u00e8res minimum).`,
+      );
+      return;
+    }
     setBusy(true);
     try {
       await requestInvitation({
@@ -153,24 +164,40 @@ export default function RequestAccess() {
 
             <div className="space-y-1.5">
               <Label htmlFor="motivation">
-                Pourquoi souhaitez-vous un accès ? (optionnel)
+                Pourquoi souhaitez-vous un accès ? <span className="text-rose-400">*</span>
               </Label>
               <div className="relative">
                 <MessageSquareHeart className="absolute left-3 top-3 size-4 text-muted-foreground pointer-events-none" />
                 <Textarea
                   id="motivation"
-                  rows={4}
+                  rows={5}
+                  required
+                  minLength={MOTIVATION_MIN}
                   maxLength={1000}
                   value={motivation}
                   onChange={(e) => setMotivation(e.target.value)}
                   className="pl-9 resize-none"
-                  placeholder="Je suis astronome amateur dans le Vercors et j'aimerais comparer mes mesures avec votre sonde…"
+                  placeholder="Présentez-vous en quelques mots : votre intérêt pour l'astronomie, votre site d'observation habituel, ce que vous comptez faire avec les données SQM, votre club éventuel. Soyez sincère, je lis chaque demande personnellement."
                   data-testid="request-access-motivation-input"
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                {motivation.length}/1000 caractères
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p
+                  className={`text-xs ${
+                    motivationOk
+                      ? "text-emerald-400"
+                      : motivationTrimmedLen === 0
+                      ? "text-muted-foreground"
+                      : "text-amber-400"
+                  }`}
+                  data-testid="request-access-motivation-counter"
+                >
+                  {motivationOk
+                    ? `✓ ${motivationTrimmedLen} caractères`
+                    : `${motivationTrimmedLen} / ${MOTIVATION_MIN} caractères minimum`}
+                </p>
+                <p className="text-xs text-muted-foreground">max 1000</p>
+              </div>
             </div>
 
             {/* Honeypot anti-bot : caché visuellement et aux a11y */}
@@ -199,7 +226,7 @@ export default function RequestAccess() {
             <Button
               type="submit"
               className="w-full"
-              disabled={busy || !email}
+              disabled={busy || !email || !motivationOk}
               data-testid="request-access-submit-button"
             >
               {busy ? (

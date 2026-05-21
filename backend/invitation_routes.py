@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 import auth
 import db
@@ -46,11 +46,27 @@ _REQUEST_RATE_WINDOW_MIN = 60
 class InvitationRequestBody(BaseModel):
     email: EmailStr
     display_name: Optional[str] = Field(default=None, max_length=80)
-    motivation: Optional[str] = Field(default=None, max_length=1000)
+    # Motivation OBLIGATOIRE (min 50 caract\u00e8res apr\u00e8s strip) : permet de
+    # filtrer les demandes vides ou non s\u00e9rieuses avant m\u00eame de solliciter
+    # l'admin. 50 caract\u00e8res \u2248 une vraie phrase de 10-15 mots.
+    motivation: str = Field(min_length=50, max_length=1000)
     # Honeypot anti-bot : ce champ doit toujours \u00eatre vide. S'il est rempli,
     # on "accepte" la demande silencieusement sans rien faire pour ne pas
     # alerter le bot.
     website: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator('motivation')
+    @classmethod
+    def _strip_motivation(cls, v: str) -> str:
+        # Rejette les motivations qui ne sont QUE des espaces/retours ligne.
+        # Sinon "          50 espaces          " passerait le min_length=50.
+        stripped = (v or '').strip()
+        if len(stripped) < 50:
+            raise ValueError(
+                'La motivation doit contenir au moins 50 caract\u00e8res '
+                'significatifs (hors espaces).'
+            )
+        return stripped
 
 
 class InvitationDecisionBody(BaseModel):
