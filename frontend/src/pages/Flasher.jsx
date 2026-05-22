@@ -423,13 +423,14 @@ function BrowserSupportedFlashRow({ channel, firmwareInfo, firmwareLoading, firm
                   Taille : <code className="font-mono">{sizeKb} Ko</code>
                 </span>
               )}
-              {firmwareInfo.published_at && (
+              {(firmwareInfo.asset?.updated_at || firmwareInfo.published_at) && (
                 <span>
-                  Publié le{" "}
+                  Build du{" "}
                   <code className="font-mono">
-                    {new Date(firmwareInfo.published_at).toLocaleDateString(
-                      "fr-FR"
-                    )}
+                    {new Date(
+                      firmwareInfo.asset?.updated_at ||
+                        firmwareInfo.published_at,
+                    ).toLocaleDateString("fr-FR")}
                   </code>
                 </span>
               )}
