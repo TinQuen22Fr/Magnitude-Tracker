@@ -640,6 +640,22 @@ async def firmware_info_esp8266(channel: Optional[str] = Query(default='stable')
         else:
             display_version = tag_name or 'latest'
 
+    # Distinction visuelle stable / beta :
+    # Les deux canaux peuvent partager le même numéro vX.Y.Z (ex: la
+    # release stable v2.3.12 et la pre-release `latest-wifimanager` dont
+    # le nom contient aussi "v2.3.12"). Sans suffixe explicite, l'UI
+    # affiche le MÊME numéro pour les deux canaux, ce qui n'est pas
+    # crédible : la beta doit toujours apparaître distincte du build de
+    # prod (binaire potentiellement plus récent puisque rolling tag).
+    #
+    # Convention adoptée : suffixe `-beta` ajouté pour le canal beta, sauf
+    # si le tag/nom contient déjà un suffixe pre-release sémantique
+    # (`-rc.X`, `-beta.X`, etc.). De cette façon, le badge UI affiche
+    # `v2.3.12` (stable) vs `v2.3.12-beta` (beta) et il n'y a plus
+    # d'ambiguïté possible.
+    if ch == 'beta' and '-' not in display_version:
+        display_version = f'{display_version}-beta'
+
     return {
         'channel': ch,
         'channel_label': FIRMWARE_CHANNELS[ch]['label'],
