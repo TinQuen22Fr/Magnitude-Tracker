@@ -81,7 +81,7 @@ export default function ReceptionStatus() {
         }}
         data-testid="reception-status-dot"
       />
-      <span data-testid="reception-status-text">{label}</span>
+      <span data-testid="reception-status-text" className="hidden sm:inline">{label}</span>
     </div>
   );
 }
