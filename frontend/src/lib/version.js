@@ -44,6 +44,9 @@
  *           sur écrans < 640 px → regroupement Settings/Flasher/Setup
  *           dans un menu hamburger), distinction visuelle Stable vs Beta
  *           sur la page Flasher (suffixe -beta automatique).
+ *   1.6.2 : Signature persistante « Build & Idea by Quentin Dumont »
+ *           en bas d'écran (SignatureBadge), lien vers le dépôt GitHub
+ *           du projet, icône Sparkles adaptée mode nuit.
  *
  * ----------------------------------------------------------------------------
  * À venir :
